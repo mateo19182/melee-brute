@@ -304,6 +304,98 @@ MSL_API MslResult msl_batch_save(const MslBatch* batch, uint32_t env_index, void
 MSL_API MslResult msl_batch_restore(MslBatch* batch, uint32_t env_index, const void* buffer,
                                     size_t buffer_size);
 
+// --- Search over one environment (Linux only; elsewhere every call returns MSL_INVALID_STATE)
+//
+// Take-back: msl_brute_checkpoint remembers the environment's state as `level` and
+// msl_brute_rollback returns to it, exactly. The environment's memory is write-protected, so the
+// first write to a page is caught and only pages that were written are ever copied. Destroy the
+// MslBrute before its batch. After anything other than stepping changes the environment (reset,
+// restore, copy), call msl_brute_reset: it forgets every checkpoint.
+//
+// msl_brute_hash is a 128-bit hash of the complete state: equal hashes mean equal states, within
+// one process and its forks.
+typedef struct MslBrute MslBrute;
+
+enum {
+  MSL_BRUTE_MAX_MOVES = 64,
+  MSL_BRUTE_MAX_MOVE_FRAMES = 512,
+  MSL_BRUTE_MAX_MENUS = 16,
+  MSL_BRUTE_MAX_MENU_MOVES = 32,
+  MSL_BRUTE_ACTIONS = 1024,
+  MSL_BRUTE_NO_MOVE = -1,
+};
+
+// A move is a run of inputs, one per frame, stick x written as if the opponent were to the right:
+// frames[move_start[m] .. move_start[m + 1]). A fighter whose action id is `a` may pick the moves
+// of menu action_menu[a] (ids from MSL_BRUTE_ACTIONS up use the last entry). With `trap` set, a
+// position where the defender's action is in trap_defender, the attacker's is in trap_attacker and
+// free to pick, they are within trap_reach of each other and (trap_same_y) at the same height
+// counts as won by the attacker.
+typedef struct MslBruteRules {
+  uint32_t move_count;
+  uint32_t menu_count;
+  uint16_t move_start[MSL_BRUTE_MAX_MOVES + 1];
+  MslInputPlayer frames[MSL_BRUTE_MAX_MOVE_FRAMES];
+  uint8_t menu_size[MSL_BRUTE_MAX_MENUS];
+  uint8_t menu_moves[MSL_BRUTE_MAX_MENUS][MSL_BRUTE_MAX_MENU_MOVES];
+  uint8_t action_menu[MSL_BRUTE_ACTIONS];
+  uint8_t trap;
+  uint8_t trap_same_y;
+  uint8_t _reserved[2];
+  float trap_reach;
+  uint8_t trap_attacker[MSL_BRUTE_ACTIONS];
+  uint8_t trap_defender[MSL_BRUTE_ACTIONS];
+} MslBruteRules;
+
+// A move in flight is move | frame << 8 | (1 << 24 if it is played facing left), or
+// MSL_BRUTE_NO_MOVE when the fighter is free to pick.
+typedef struct MslBrutePlay {
+  int32_t outcome; // +1 player 1 landed the first hit, -1 was hit or traded, 0 nobody hit yet
+  int32_t frames;  // frames played
+  int32_t attacker; // the unfinished moves afterwards
+  int32_t defender;
+} MslBrutePlay;
+
+typedef struct MslBruteStats {
+  uint64_t positions; // joint moves played
+  uint64_t frames;    // frames simulated
+  uint64_t nodes;     // positions expanded by the search
+  uint64_t table_hits;
+  uint64_t table_stores;
+  uint32_t dirty_pages; // pages a rollback copies
+  uint32_t _reserved;
+} MslBruteStats;
+
+MSL_API MslResult msl_brute_create(MslBatch* batch, uint32_t env_index, uint32_t level_count,
+                                   MslBrute** out_brute);
+MSL_API void msl_brute_destroy(MslBrute* brute);
+MSL_API MslResult msl_brute_reset(MslBrute* brute);
+MSL_API MslResult msl_brute_checkpoint(MslBrute* brute, uint32_t level);
+MSL_API MslResult msl_brute_rollback(MslBrute* brute, uint32_t level);
+MSL_API MslResult msl_brute_hash(MslBrute* brute, uint64_t hash[2]);
+// One frame, without writing an observation.
+MSL_API MslResult msl_brute_step(MslBrute* brute, const MslInput* input);
+
+// The forced-first-hit search. msl_brute_begin takes the current percents and stocks as the ones
+// a hit is measured against. `table` is memory for decided positions, shared by every process
+// that passes the same mapping; NULL searches without one. msl_brute_search answers, for
+// `attacking`, whether player 1 forces the first hit within `frames` whatever player 2 does, and
+// otherwise whether player 2 can avoid it whatever player 1 does; the side asked about picks
+// first. It uses checkpoint levels from `level` up and leaves the state as it found it.
+MSL_API MslResult msl_brute_begin(MslBrute* brute, const MslBruteRules* rules, void* table,
+                                  size_t table_bytes);
+MSL_API MslResult msl_brute_play(MslBrute* brute, int32_t attacker, int32_t defender,
+                                 MslBrutePlay* out);
+MSL_API MslResult msl_brute_options(MslBrute* brute, int32_t attacker, int32_t defender,
+                                    int32_t attackers[], uint32_t* attacker_count,
+                                    int32_t defenders[], uint32_t* defender_count);
+// Whether the rules' trap holds in the current state, for an attacker free to pick.
+MSL_API MslResult msl_brute_trapped(MslBrute* brute, int32_t* out_trapped);
+MSL_API MslResult msl_brute_search(MslBrute* brute, int32_t frames, int32_t attacker,
+                                   int32_t defender, uint32_t level, int attacking,
+                                   int32_t* out_holds);
+MSL_API MslResult msl_brute_stats(const MslBrute* brute, MslBruteStats* out);
+
 #ifdef __cplusplus
 }
 #endif

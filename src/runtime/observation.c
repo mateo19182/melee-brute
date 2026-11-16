@@ -549,3 +549,18 @@ void msl_core_match_write_terminal(const MslCoreMatch* match,
     out[offsetof(MslCoreTerminal, alive_team_count)] = alive_teams;
     out[offsetof(MslCoreTerminal, team_alive_mask)] = team_mask;
 }
+
+void msl_core_match_brute_view(const MslCoreMatch* match, int player,
+                               MslCoreBruteView* out)
+{
+    const Fighter* fp = GET_FIGHTER(match->fighters[player]);
+    memset(out, 0, sizeof(*out));
+    out->stocks = (uint8_t) match->source.player.slots[fp->player_id].stocks;
+    if (fp->x221F_b3) {
+        return;
+    }
+    out->pos_x = match->output_pos_x[player];
+    out->pos_y = match->output_pos_y[player];
+    out->percent = fp->dmg.x1830_percent;
+    out->action_id = (uint16_t) fp->motion_id;
+}

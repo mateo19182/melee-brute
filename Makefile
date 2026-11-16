@@ -396,6 +396,7 @@ NATIVE_RELEASE_OPT_OBJS := \
 	$(NATIVE_OBJ_DIR)/gameplay/sysdolphin/baselib/jobj.o \
 	$(NATIVE_OBJ_DIR)/src/api.o \
 	$(NATIVE_OBJ_DIR)/src/platform/dolphin_mtx.o \
+	$(NATIVE_OBJ_DIR)/src/runtime/brute.o \
 	$(NATIVE_OBJ_DIR)/src/runtime/fighter_pose.o \
 	$(NATIVE_OBJ_DIR)/src/runtime/observation.o \
 	$(NATIVE_OBJ_DIR)/src/runtime/ppc_sqrt.o \

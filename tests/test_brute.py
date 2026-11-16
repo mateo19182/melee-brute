@@ -14,7 +14,6 @@ def match():
     from melee_brute import Match
     m = Match()
     m.start()
-    m.learn()
     return m
 
 
