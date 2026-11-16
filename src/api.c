@@ -36,6 +36,7 @@ struct MslBatch {
 };
 
 _Static_assert(MSL_OK == MSL_CORE_OK, "result values must agree");
+_Static_assert(MSL_CHECKPOINT_PAGE_SIZE == MSL_CORE_CHECKPOINT_PAGE, "page sizes must agree");
 _Static_assert(MSL_INCOMPATIBLE == MSL_CORE_INCOMPATIBLE, "result values must agree");
 _Static_assert(sizeof(MslPlayerConfig) == 7, "MslPlayerConfig layout");
 _Static_assert(sizeof(MslMatchConfig) == 52, "MslMatchConfig layout");

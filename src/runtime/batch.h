@@ -65,10 +65,14 @@ MslCoreResult msl_core_batch_restore_match(
     MslCoreBatch* batch, uint32_t match_index, const void* buffer,
     size_t buffer_size);
 
+#define MSL_CORE_CHECKPOINT_PAGE 4096u
 
-// Checkpoint and rollback of one match in place (melee-llm patch). The buffer holds the match struct followed by
-// the whole arena. `pages` lists the 4 KiB arena pages to copy; NULL copies the whole arena. A rollback goes back
-// to the same address, so no pointer relocation is needed.
+// In-place checkpoint and rollback of one match, for search that steps a
+// match forward and takes the frames back. The buffer holds the match struct
+// followed by its whole arena. `pages` lists the arena pages to copy; NULL
+// copies every page. A rollback returns the bytes to the address they came
+// from, so nothing is relocated and the buffer is only valid for the match it
+// was taken from, until that match is reset, restored or copied into.
 MslCoreResult msl_core_batch_checkpoint_size(
     const MslCoreBatch* batch, uint32_t match_index, size_t* required_size);
 MslCoreResult msl_core_batch_checkpoint(

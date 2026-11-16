@@ -17,6 +17,7 @@ extern "C" {
 enum {
   MSL_MAX_PLAYERS = 4,
   MSL_MAX_ITEMS = 15,
+  MSL_CHECKPOINT_PAGE_SIZE = 4096,
 };
 
 typedef struct MslBatch MslBatch;
@@ -280,7 +281,11 @@ MSL_API MslResult msl_batch_observe(const MslBatch* batch, MslObservation observ
 MSL_API MslResult msl_batch_copy(MslBatch* destination, const MslBatch* source,
                                  const uint32_t destination_indices[],
                                  const uint32_t source_indices[], uint32_t count);
-// melee-llm patch: in-place checkpoint and rollback of one environment. See runtime/batch.h.
+// In-place checkpoint and rollback of one environment, for search. `pages` lists the
+// MSL_CHECKPOINT_PAGE_SIZE-byte pages of environment memory to copy; NULL copies all of them.
+// msl_batch_diff_pages sets page_flags[i] for each page that differs from the checkpoint. A
+// checkpoint is only valid for the environment it was taken from, until that environment is reset,
+// restored or copied into.
 MSL_API MslResult msl_batch_checkpoint_size(const MslBatch* batch, uint32_t env_index,
                                             size_t* required_size);
 MSL_API MslResult msl_batch_checkpoint(const MslBatch* batch, uint32_t env_index, void* buffer,

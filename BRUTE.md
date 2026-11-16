@@ -84,6 +84,7 @@ On a Ryzen 9 5950X (16 cores), measured on an otherwise quiet machine with the s
 ## What changed in the simulator
 
 - `src/runtime/batch.c`, `batch.h`, `src/api.c`, `api.h`: four new calls, `msl_batch_checkpoint_size`, `msl_batch_checkpoint`, `msl_batch_rollback` and `msl_batch_diff_pages`. Nothing existing was modified.
+- `melee_sim/env_batch.py`, `_native.py`, `API.md`, `tests/test_melee_sim_api.py`: `EnvBatch.checkpoint`, `rollback` and `changed_pages` over those calls, their docs and a test. This and the C change are the part meant for upstream; the branch `upstream-checkpoint` holds it alone on top of upstream's `main`.
 - `setup.py` and `pyproject.toml`: the package list and the project name.
 - Everything else of ours is in new files: `melee_brute/`, `tests/test_brute.py`, this page.
 
