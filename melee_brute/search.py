@@ -21,6 +21,7 @@ import json
 import mmap
 import multiprocessing as mp
 import os
+import queue
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Mapping, Sequence
@@ -245,13 +246,13 @@ class Forced:
     def safe(self, frames: int, pa=None, pd=None, depth: int = 0) -> bool:
         return self._search(frames, pa, pd, depth, False)
 
-    def _search(self, frames: int, pa, pd, depth: int, attacking: bool) -> bool:
+    def _search(self, frames: int, pa, pd, depth: int, attacking: bool, spread: int = 0) -> bool:
         """With `attacking`, is the first hit forced for P1; without, can P2 always avoid it? The side asked
         about picks first and the other answers. Uses checkpoint levels from `depth` up and leaves the state
-        as it found it."""
+        as it found it. Processes searching the same position over one table pass different `spread`."""
         self._mine()
         engine.ok(self.m.lib.msl_brute_search(self.m.brute, frames, self._pack(pa), self._pack(pd), depth,
-                                              attacking, ctypes.byref(self._holds)))
+                                              attacking, spread, ctypes.byref(self._holds)))
         return bool(self._holds.value)
 
 
@@ -279,22 +280,22 @@ def _open(job):
 
 
 def _task(job):
-    """After the root joint move (a, d), does the first picker's move `m` hold against every answer?"""
-    a, d, m = job
+    """After the root joint move (a, d), does the first picker's move `m` hold against every answer? `spread`
+    is 0 for the process that owns the job and counts up for the ones that help it."""
+    a, d, m, spread = job
     attacking, frames = _CFG["attacking"], _CFG["frames"]
     before = _F.positions
     _F.m.checkpoint(0)
     o, u, ra, rd = _F.play(a, d)
     att, dfn = _F.options(m if attacking else ra, rd if attacking else m)
+    pairs = [(a2, d2) for a2 in att for d2 in dfn]
+    turn = spread * (len(pairs) // 2 + 1) % len(pairs)
     _F.m.checkpoint(1)
     ok = True
-    for a2 in att:
-        for d2 in dfn:
-            o2, u2, ra2, rd2 = _F.play(a2, d2)
-            ok = (o2 > 0) == attacking if o2 else _F._search(frames - u - u2, ra2, rd2, 2, attacking)
-            _F.m.rollback(1)
-            if not ok:
-                break
+    for a2, d2 in pairs[turn:] + pairs[:turn]:
+        o2, u2, ra2, rd2 = _F.play(a2, d2)
+        ok = (o2 > 0) == attacking if o2 else _F._search(frames - u - u2, ra2, rd2, 2, attacking, spread)
+        _F.m.rollback(1)
         if not ok:
             break
     _F.m.rollback(0)
@@ -344,12 +345,27 @@ def solve(root: bytes, rules: Rules, frames: int, mode: str = "win", workers: in
                 else:
                     result[(a, d)] = result[(a, d)] or seen[0]
                     total += seen[1]
-            for a, d, x, ok, n in pool.imap_unordered(_task, todo):
-                result[(a, d)] = result[(a, d)] or ok
+            # Each job goes to one process. A process with nothing left to start helps the unfinished job
+            # that has the fewest: it searches the same position from other moves, through the same table.
+            done: queue.SimpleQueue = queue.SimpleQueue()
+            fresh, helpers, flying = list(reversed(todo)), {job: 0 for job in todo}, 0
+            while helpers:
+                while flying < workers and (fresh or helpers):
+                    job = fresh.pop() if fresh else min(helpers, key=helpers.get)
+                    pool.apply_async(_task, ((*job, helpers[job]),), callback=done.put, error_callback=done.put)
+                    helpers[job] += 1
+                    flying += 1
+                got = done.get()
+                flying -= 1
+                if isinstance(got, BaseException):
+                    raise got
+                a, d, x, ok, n = got
                 total += n
-                if log:
-                    log.write(json.dumps({"ask": ask, "job": [a, d, x], "ok": ok, "n": n}) + "\n")
-                    log.flush()
+                if helpers.pop((a, d, x), None) is not None:
+                    result[(a, d)] = result[(a, d)] or ok
+                    if log:
+                        log.write(json.dumps({"ask": ask, "job": [a, d, x], "ok": ok, "n": n}) + "\n")
+                        log.flush()
     finally:
         _F = None
         m.close()

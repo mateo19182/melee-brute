@@ -47,7 +47,7 @@ def library() -> ctypes.CDLL:
             ("options", [p, i32, i32, ctypes.POINTER(i32 * MAX_MENU_MOVES), ctypes.POINTER(u32),
                          ctypes.POINTER(i32 * MAX_MENU_MOVES), ctypes.POINTER(u32)]),
             ("trapped", [p, ctypes.POINTER(i32)]),
-            ("search", [p, i32, i32, i32, u32, ctypes.c_int, ctypes.POINTER(i32)]),
+            ("search", [p, i32, i32, i32, u32, ctypes.c_int, u32, ctypes.POINTER(i32)]),
             ("stats", [p, ctypes.POINTER(Stats)])):
         fn = getattr(lib, "msl_brute_" + name)
         fn.argtypes, fn.restype = args, ctypes.c_int

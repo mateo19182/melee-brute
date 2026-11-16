@@ -32,6 +32,7 @@ enum {
     BRUTE_TABLE_WAYS = 4,
     BRUTE_NO_WIN = 0xFFF,
     BRUTE_SCAN_FRAMES = 3,
+    BRUTE_SPREAD_LEVELS = 6,
 };
 
 typedef struct BruteSpan {
@@ -85,6 +86,11 @@ struct MslCoreBrute {
     BruteEntry* table;
     uint64_t table_mask; // of buckets
     int exact;
+    // A helper searches the same position as another process. Above
+    // `spread_level` it starts each list of moves `spread` places further on,
+    // so the two meet through the table instead of repeating each other.
+    uint32_t spread;
+    uint32_t spread_level;
     int failed;
     MslBruteStats stats;
     // Move ordering, by question asked: how often a move held, how often an
@@ -750,6 +756,22 @@ static inline int settle(const MslCoreBrute* brute, const MslBrutePlay* kid,
     return -1;
 }
 
+static inline void spread_moves(const MslCoreBrute* brute, uint32_t level,
+                                uint8_t order[], uint32_t count)
+{
+    uint8_t turned[MSL_BRUTE_MAX_MENU_MOVES];
+    uint32_t shift;
+    uint32_t i;
+    if (brute->spread == 0 || level >= brute->spread_level || count < 2) {
+        return;
+    }
+    shift = (brute->spread * (count / 2 + level % 2)) % count;
+    for (i = 0; i < count; ++i) {
+        turned[i] = order[(i + shift) % count];
+    }
+    memcpy(order, turned, count);
+}
+
 // The chance a try succeeds per position it costs: trying in falling order of
 // this finds a success for the least expected work. An untried move counts as
 // an even chance at the cost of one position, so it is tried early.
@@ -864,6 +886,7 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
         theirs_count = attacker_count;
     }
     order_moves(mine, mine_count, NULL, brute->held[attacking], mine_order);
+    spread_moves(brute, level, mine_order, mine_count);
     checkpoint(brute, level);
     for (i = 0; i < mine_count; ++i) {
         int32_t x = mine[mine_order[i]];
@@ -873,6 +896,7 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
         int refuted = 0;
         order_moves(theirs, theirs_count, against, brute->refuted[attacking],
                     theirs_order);
+        spread_moves(brute, level, theirs_order, theirs_count);
         // Every answer is looked at first: one that settles the line at once
         // for the other side refutes the move, and the lines that are settled
         // either way need no second look.
@@ -1065,7 +1089,7 @@ MslCoreResult msl_core_brute_trapped(MslCoreBrute* brute, int32_t* out_trapped)
 MslCoreResult msl_core_brute_search(MslCoreBrute* brute, int32_t frames,
                                     int32_t attacker, int32_t defender,
                                     uint32_t level, int attacking,
-                                    int32_t* out_holds)
+                                    uint32_t spread, int32_t* out_holds)
 {
     if (brute == NULL || out_holds == NULL || !brute->has_rules ||
         (attacker >= 0 && !valid_move(brute, attacker)) ||
@@ -1073,6 +1097,8 @@ MslCoreResult msl_core_brute_search(MslCoreBrute* brute, int32_t frames,
     {
         return MSL_CORE_INVALID_ARGUMENT;
     }
+    brute->spread = spread;
+    brute->spread_level = level + BRUTE_SPREAD_LEVELS;
     *out_holds = search(brute, frames, attacker, defender, level,
                         attacking != 0);
     return brute->failed ? MSL_CORE_INVALID_STATE : MSL_CORE_OK;
@@ -1189,8 +1215,9 @@ MslCoreResult msl_core_brute_trapped(MslCoreBrute* brute, int32_t* out_trapped)
 MslCoreResult msl_core_brute_search(MslCoreBrute* brute, int32_t frames,
                                     int32_t attacker, int32_t defender,
                                     uint32_t level, int attacking,
-                                    int32_t* out_holds)
+                                    uint32_t spread, int32_t* out_holds)
 {
+    (void) spread;
     (void) brute;
     (void) frames;
     (void) attacker;

@@ -31,7 +31,7 @@ MslCoreResult msl_core_brute_trapped(MslCoreBrute* brute, int32_t* out_trapped);
 MslCoreResult msl_core_brute_search(MslCoreBrute* brute, int32_t frames,
                                     int32_t attacker, int32_t defender,
                                     uint32_t level, int attacking,
-                                    int32_t* out_holds);
+                                    uint32_t spread, int32_t* out_holds);
 MslCoreResult msl_core_brute_stats(const MslCoreBrute* brute,
                                    MslBruteStats* out);
 
