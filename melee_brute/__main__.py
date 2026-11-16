@@ -40,14 +40,16 @@ def run_fox(args) -> None:
           f"{float(b['pos_x'] - a['pos_x']):.1f} apart, {args.frames} frames")
     del m
     rules = "melee_brute.fox:RULES_TRAP" if args.trap else "melee_brute.fox:RULES"
-    r = solve(root, rules, args.frames, "safe" if args.safe else "win", args.workers, data_dir=args.data_dir)
+    r = solve(root, rules, args.frames, "safe" if args.safe else "win", args.workers, data_dir=args.data_dir,
+              table_mb=args.table_mb, out=args.out, tag=f"gap {args.gap} ledge {args.ledge} hop {args.hop}")
     if args.safe:
         print(f"defender safe with {r['holds']}" if r["holds"] else "NO SAFE DEFENCE: the defender must guess")
     else:
         print(f"FORCED WIN with {r['holds']}" if r["holds"] else "no forced win")
     for move, by in r["beaten_by"].items():
         print(f"   {move:8s} " + ("holds against everything" if not by else "beaten by: " + ", ".join(by)))
-    print(f"{r['positions']:,} positions in {r['seconds']} s ({r['positions'] / r['seconds']:,.0f}/s)")
+    print(f"{r['positions']:,} positions in {r['seconds']} s on {r['workers']} processes; "
+          f"{r['resumed']} of {r['jobs']} jobs came from an earlier run")
 
 
 def main() -> None:
@@ -63,6 +65,8 @@ def main() -> None:
     f.add_argument("--safe", action="store_true", help="ask whether the defender has a defence that needs no guess")
     f.add_argument("--trap", action="store_true", help="count the measured shield trap as a win for the attacker")
     f.add_argument("--workers", type=int)
+    f.add_argument("--table-mb", type=int, default=400, help="memory for remembered positions, per process")
+    f.add_argument("--out", help="file that collects finished jobs; a rerun with it continues where it stopped")
     f.set_defaults(fn=run_fox)
     args = ap.parse_args()
     args.fn(args)

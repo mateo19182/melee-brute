@@ -70,6 +70,8 @@ On a Ryzen 9 5950X (16 cores), measured on an otherwise quiet machine with the s
 | `EnvBatch.copy_matches_from`, one match | about 300 µs |
 | savestate save or restore | about 2,500 µs |
 
+- The table is from the unoptimised build. This fork now installs upstream's optimised `python-release` profile (upstream's own install uses `-O0`): the same play frame for frame, checked over 60,000 frames, and about 1.5 times the search speed.
+- Long searches are bounded: each process keeps at most `table_mb` (default 400 MB) of decided positions, the process count is cut to the free memory, and with `out=` (`--out` on the command line) finished jobs are saved so a rerun continues where it stopped. On Linux, run them under a memory limit all the same: `systemd-run --user -p MemoryMax=12G -p MemorySwapMax=0 python -m melee_brute fox ...`.
 - The two-player search runs at 67,000 to 113,000 positions per second on 28 processes. With lane copies it could not pass 10,500: every copy moves the whole state and saturates memory bandwidth.
 - `python -m melee_brute bench` prints these numbers for your machine.
 

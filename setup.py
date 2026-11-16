@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -28,14 +29,15 @@ class NativeWheel(bdist_wheel):
 class BuildPythonApi(build_py):
     def run(self) -> None:
         subprocess.run(
-            ["make", "--no-print-directory", "python-library", f"PY={sys.executable}"],
+            # melee-brute: upstream's optimised, exactness-audited profile (upstream installs the -O0 build)
+            ["make", "--no-print-directory", "python-release", f"PY={sys.executable}", f"-j{os.cpu_count()}"],
             cwd=ROOT,
             check=True,
         )
         super().run()
         destination = Path(self.build_lib) / "melee_sim" / "libmelee_core.so"
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / "build/melee_core/python/libmelee_core.so", destination)
+        shutil.copy2(ROOT / "build/melee_core/python-release/libmelee_core.so", destination)
         # Keep debug information in the build tree, outside the installed package.
         subprocess.run(["strip", "-S", str(destination)], check=True)
 

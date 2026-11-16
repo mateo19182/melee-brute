@@ -14,7 +14,9 @@ If both are no, the defender has to guess: the position is decided by mixed stra
 from __future__ import annotations
 
 import importlib
+import json
 import multiprocessing as mp
+import os
 import time
 from dataclasses import dataclass
 from typing import Callable, Sequence
@@ -111,14 +113,32 @@ def _key(s) -> tuple:
             int(s["jumps_left"]))
 
 
-class Forced:
-    """Depth-first forced-win search from the match's current state. A move in flight is (name, frame, toward)."""
+TABLE_BYTES = 140  # measured memory per remembered position
+WORKER_MB = 600  # a search process before its table grows
+RESERVE_MB = 10_000  # memory left for everything else on the machine
 
-    def __init__(self, match: Match, rules: Rules):
+
+def fit_workers(workers: int, table_mb: int) -> int:
+    """As many processes as the free memory holds with their tables full (Linux; elsewhere `workers`)."""
+    try:
+        with open("/proc/meminfo") as f:
+            avail = next(int(x.split()[1]) for x in f if x.startswith("MemAvailable")) // 1024
+    except OSError:
+        return workers
+    return max(1, min(workers, (avail - RESERVE_MB) // (WORKER_MB + table_mb)))
+
+
+class Forced:
+    """Depth-first forced-win search from the match's current state. A move in flight is (name, frame, toward).
+    Decided positions are remembered by hash, in at most `table_mb` of memory; the table is emptied when full."""
+
+    def __init__(self, match: Match, rules: Rules, table_mb: int = 400):
         self.m, self.rules = match, rules
         a, b = match.players()
         self.base = (float(a["percent"]), float(b["percent"]), int(a["stocks"]), int(b["stocks"]))
-        self.tt: dict[tuple, list[int]] = {}
+        self.for_attacker: dict[int, int] = {}  # fewest frames in which the position is proven good for P1
+        self.for_defender: dict[int, int] = {}  # most frames for which it is proven good for P2
+        self.cap = table_mb * 1_000_000 // TABLE_BYTES
         self.positions = 0
 
     def play(self, pa, pd):
@@ -146,6 +166,15 @@ class Forced:
         dfn = [pd] if pd else [(n, 0, -toward) for n in self.rules.menu(b)]
         return att, dfn
 
+    def forget(self) -> None:
+        self.for_attacker.clear()
+        self.for_defender.clear()
+
+    def _remember(self, key: int, frames: int, attacker: bool) -> None:
+        if len(self.for_attacker) + len(self.for_defender) >= self.cap:
+            self.forget()
+        (self.for_attacker if attacker else self.for_defender)[key] = frames
+
     def known_win(self, pa) -> bool:
         return self.rules.won is not None and pa is None and self.rules.won(*self.m.players())
 
@@ -157,17 +186,16 @@ class Forced:
 
     def _search(self, frames: int, pa, pd, depth: int, attacking: bool) -> bool:
         """The answer to the question: with `attacking`, is the first hit forced for P1; without, can P2 always
-        avoid it? The side asked about picks first and the other answers. Leaves the state as it found it.
-        `seen` holds [fewest frames proven good for the attacker, most frames proven good for the defender]."""
+        avoid it? The side asked about picks first and the other answers. Leaves the state as it found it."""
         if frames <= 0:
             return not attacking
         if self.known_win(pa):
             return attacking
         a, b = self.m.players()
-        seen = self.tt.setdefault(_key(a) + _key(b) + (pa, pd, attacking), [10 ** 6, -1])
-        if frames >= seen[0]:  # proven with fewer frames in hand: more frames only help the attacker
+        key = hash(_key(a) + _key(b) + (pa, pd, attacking))
+        if frames >= self.for_attacker.get(key, 10 ** 6):  # more frames in hand only help the attacker
             return attacking
-        if frames <= seen[1]:
+        if frames <= self.for_defender.get(key, -1):
             return not attacking
         att, dfn = self.options(pa, pd)
         mine, theirs = (att, dfn) if attacking else (dfn, att)
@@ -193,9 +221,9 @@ class Forced:
                 if not ok:
                     break
             if ok:
-                seen[0 if attacking else 1] = frames
+                self._remember(key, frames, attacking)
                 return True
-        seen[1 if attacking else 0] = frames
+        self._remember(key, frames, not attacking)
         return False
 
 
@@ -214,7 +242,7 @@ def _init(root: bytes, cfg: dict) -> None:
     m = Match(*cfg["match"], data_dir=cfg["data_dir"])
     m.load(root)
     m.learn()
-    _F, _CFG = Forced(m, _load(cfg["rules"])), cfg
+    _F, _CFG = Forced(m, _load(cfg["rules"]), cfg["table_mb"]), cfg
 
 
 def _clean(run):
@@ -224,7 +252,7 @@ def _clean(run):
         out = run()
         if _F.m.missed == before:
             return out
-        _F.tt.clear()
+        _F.forget()
 
 
 def _open(job):
@@ -270,31 +298,59 @@ def _task(job):
 
 
 def solve(root: bytes, rules: str, frames: int, mode: str = "win", workers: int | None = None,
-          match: tuple = ("FOX", "FOX", "FINAL_DESTINATION"), data_dir=None) -> dict:
+          match: tuple = ("FOX", "FOX", "FINAL_DESTINATION"), data_dir=None, table_mb: int = 400,
+          out: str | None = None, tag: str = "") -> dict:
     """Run `Forced` from savestate `root` on many processes. `rules` is "module:NAME" of a `Rules` object, so
-    each worker can import it. `mode` is "win" or "safe". Returns which first moves hold and what beats the rest."""
+    each worker can import it. `mode` is "win" or "safe". Returns which first moves hold and what beats the rest.
+
+    Memory is bounded: each process keeps at most `table_mb` of decided positions, and the process count is cut
+    to what the free memory holds. Finished jobs are appended to the file `out`; a later call with the same
+    `out`, question and `tag` (name the root position with it) skips them."""
     t0 = time.time()
     attacking = mode == "win"
-    cfg = {"match": match, "data_dir": data_dir, "rules": rules, "frames": frames, "attacking": attacking}
+    workers = fit_workers(workers or mp.cpu_count(), table_mb)
+    cfg = {"match": match, "data_dir": data_dir, "rules": rules, "frames": frames, "attacking": attacking,
+           "table_mb": table_mb}
+    ask = {"rules": rules, "frames": frames, "mode": mode, "match": list(match), "tag": tag}
+    old: dict[str, tuple[bool, int]] = {}
+    if out and os.path.exists(out):
+        with open(out) as f:
+            for row in map(json.loads, f):
+                if row["ask"] == ask:
+                    old[json.dumps(row["job"])] = (row["ok"], row["n"])
+    log = open(out, "a") if out else None
     m = Match(*match, data_dir=data_dir)
     m.load(root)
     att, dfn = Forced(m, _load(rules)).options()
     del m
     result: dict[tuple, bool] = {}
     total = 0
-    with mp.get_context("spawn").Pool(workers or mp.cpu_count(), initializer=_init, initargs=(root, cfg)) as pool:
+    with mp.get_context("spawn").Pool(workers, initializer=_init, initargs=(root, cfg)) as pool:
         jobs = []
         for a, d, done, nxt in pool.imap_unordered(_open, [(a, d) for a in att for d in dfn]):
             result[(a, d)] = bool(done)
             jobs += [(a, d, x) for x in nxt] if done is None else []
         np.random.default_rng(0).shuffle(jobs)
-        for a, d, x, ok, n in pool.imap_unordered(_task, jobs):
+        todo = []
+        for a, d, x in jobs:
+            if (seen := old.get(json.dumps([a, d, x]))) is None:
+                todo.append((a, d, x))
+            else:
+                result[(a, d)] = result[(a, d)] or seen[0]
+                total += seen[1]
+        for a, d, x, ok, n in pool.imap_unordered(_task, todo):
             result[(a, d)] = result[(a, d)] or ok
             total += n
+            if log:
+                log.write(json.dumps({"ask": ask, "job": [a, d, x], "ok": ok, "n": n}) + "\n")
+                log.flush()
+    if log:
+        log.close()
     first, second = (0, 1) if attacking else (1, 0)
     table: dict[str, dict[str, bool]] = {}
     for pair, ok in result.items():
         table.setdefault(pair[first][0], {})[pair[second][0]] = ok
     return {"mode": mode, "frames": frames, "holds": [x for x, row in table.items() if all(row.values())],
             "beaten_by": {x: [y for y, ok in row.items() if not ok] for x, row in table.items()},
-            "positions": total, "seconds": round(time.time() - t0, 1)}
+            "positions": total, "seconds": round(time.time() - t0, 1), "workers": workers,
+            "jobs": len(jobs), "resumed": len(jobs) - len(todo)}
