@@ -25,8 +25,6 @@ class Rollback:
     def __init__(self, env, lane: int = 0, depth: int = 256):
         from melee_sim import _native
         self.lib, self.h, self.lane = _native.library(), env._handle, lane
-        for name in ("checkpoint_size", "checkpoint", "rollback", "diff_pages"):
-            getattr(self.lib, f"msl_batch_{name}").restype = ctypes.c_int
         size = ctypes.c_size_t()
         self._ok(self.lib.msl_batch_checkpoint_size(self.h, lane, ctypes.byref(size)))
         self.size, self.npages = size.value, size.value // PAGE + 1

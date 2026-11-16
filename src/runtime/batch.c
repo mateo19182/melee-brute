@@ -7,6 +7,7 @@
 #include "runtime/viewer.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -573,8 +574,6 @@ MslCoreResult msl_core_batch_restore_match(
 }
 
 
-#define MSL_CHECKPOINT_PAGE 4096u
-
 static int checkpoint_args(const MslCoreBatch* batch, uint32_t match_index,
                            const void* buffer, size_t buffer_size)
 {
@@ -595,11 +594,11 @@ static void copy_pages(uint8_t* destination, const uint8_t* source,
         return;
     }
     for (i = 0; i < page_count; ++i) {
-        size_t offset = (size_t) pages[i] * MSL_CHECKPOINT_PAGE;
+        size_t offset = (size_t) pages[i] * MSL_CORE_CHECKPOINT_PAGE;
         if (offset < capacity) {
-            size_t size = capacity - offset < MSL_CHECKPOINT_PAGE
+            size_t size = capacity - offset < MSL_CORE_CHECKPOINT_PAGE
                               ? capacity - offset
-                              : MSL_CHECKPOINT_PAGE;
+                              : MSL_CORE_CHECKPOINT_PAGE;
             memcpy(destination + offset, source + offset, size);
         }
     }
@@ -641,10 +640,17 @@ MslCoreResult msl_core_batch_rollback(
     size_t buffer_size, const uint32_t* pages, uint32_t page_count)
 {
     MslCoreMatch* match;
+    const uint8_t* arena;
     if (!checkpoint_args(batch, match_index, buffer, buffer_size)) {
         return MSL_CORE_INVALID_ARGUMENT;
     }
     match = &batch->matches[match_index];
+    memcpy(&arena,
+           (const uint8_t*) buffer + offsetof(MslCoreMatch, memory.arena),
+           sizeof(arena));
+    if (arena != match->memory.arena) {
+        return MSL_CORE_INVALID_STATE;
+    }
     copy_pages(match->memory.arena, (const uint8_t*) buffer + sizeof(*match),
                match->memory.capacity, pages, page_count);
     memcpy(match, buffer, sizeof(*match));
@@ -669,13 +675,13 @@ MslCoreResult msl_core_batch_diff_pages(
     saved = (const uint8_t*) buffer + sizeof(*match);
     capacity = match->memory.capacity;
     for (page = 0; page < flag_count; ++page) {
-        size_t offset = (size_t) page * MSL_CHECKPOINT_PAGE;
+        size_t offset = (size_t) page * MSL_CORE_CHECKPOINT_PAGE;
         size_t size;
         if (offset >= capacity) {
             break;
         }
-        size = capacity - offset < MSL_CHECKPOINT_PAGE ? capacity - offset
-                                                       : MSL_CHECKPOINT_PAGE;
+        size = capacity - offset < MSL_CORE_CHECKPOINT_PAGE ? capacity - offset
+                                                       : MSL_CORE_CHECKPOINT_PAGE;
         if (memcmp(match->memory.arena + offset, saved + offset, size) != 0) {
             page_flags[page] = 1;
         }
