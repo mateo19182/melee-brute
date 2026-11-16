@@ -564,3 +564,25 @@ void msl_core_match_brute_view(const MslCoreMatch* match, int player,
     out->percent = fp->dmg.x1830_percent;
     out->action_id = (uint16_t) fp->motion_id;
 }
+
+void msl_core_match_brute_look(const MslCoreMatch* match, int player,
+                               int64_t out[MSL_CORE_BRUTE_LOOK_FIELDS])
+{
+    const Fighter* fp = GET_FIGHTER(match->fighters[player]);
+    int jumps_left = fp->co_attrs.max_jumps - fp->x1968_jumpsUsed;
+    memset(out, 0, MSL_CORE_BRUTE_LOOK_FIELDS * sizeof(out[0]));
+    if (fp->x221F_b3) {
+        return;
+    }
+    out[0] = llround((double) match->output_pos_x[player] * 100.0);
+    out[1] = llround((double) match->output_pos_y[player] * 100.0);
+    out[2] = llround((double) fp->gr_vel * 100.0);
+    out[3] = llround((double) fp->self_vel.x * 100.0);
+    out[4] = llround((double) fp->self_vel.y * 100.0);
+    out[5] = fp->motion_id;
+    out[6] = (uint16_t) state_age_i16(fp->cur_anim_frame);
+    out[7] = float_frames_u16(fp->dmg.x195c_hitlag_frames);
+    out[8] = llround((double) fp->shield_health * 10.0);
+    out[9] = fp->facing_dir > 0.0F;
+    out[10] = jumps_left > 0 ? jumps_left : 0;
+}

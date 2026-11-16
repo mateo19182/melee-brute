@@ -378,12 +378,16 @@ MSL_API MslResult msl_brute_step(MslBrute* brute, const MslInput* input);
 
 // The forced-first-hit search. msl_brute_begin takes the current percents and stocks as the ones
 // a hit is measured against. `table` is memory for decided positions, shared by every process
-// that passes the same mapping; NULL searches without one. msl_brute_search answers, for
+// that passes the same mapping; NULL searches without one. With `exact` a decided position answers
+// only for the very same state (msl_brute_hash). Without, it answers for every state that looks the
+// same from outside (place and speeds to 0.01, action and its frame, hitlag, shield, facing, jumps
+// left): far fewer positions to search, but the inputs a fighter was holding are not part of that
+// look, so an answer can be wrong. msl_brute_search answers, for
 // `attacking`, whether player 1 forces the first hit within `frames` whatever player 2 does, and
 // otherwise whether player 2 can avoid it whatever player 1 does; the side asked about picks
 // first. It uses checkpoint levels from `level` up and leaves the state as it found it.
 MSL_API MslResult msl_brute_begin(MslBrute* brute, const MslBruteRules* rules, void* table,
-                                  size_t table_bytes);
+                                  size_t table_bytes, int exact);
 MSL_API MslResult msl_brute_play(MslBrute* brute, int32_t attacker, int32_t defender,
                                  MslBrutePlay* out);
 MSL_API MslResult msl_brute_options(MslBrute* brute, int32_t attacker, int32_t defender,

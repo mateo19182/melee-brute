@@ -41,6 +41,7 @@ class Match:
                             max_frame=8 * 60 * 60, players=players)
         env.reset_all()
         self._level = 0
+        self.forced = None  # the Forced search this match is set up for
         # The frame call, with its three buffers resolved once for each row of the ring.
         b = env.buffers
         self._step = _native.library().msl_batch_step_masked

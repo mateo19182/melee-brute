@@ -173,9 +173,16 @@ def fit_workers(workers: int, table_mb: int) -> int:
 class Forced:
     """Forced-first-hit search from the match's current state, whose percents and stocks are the ones a hit is
     measured against. A move in flight is (name, frame, toward). Decided positions are kept in `table`, a
-    shared `mmap` that forked processes search with together, or in a private one of `table_mb`."""
+    shared `mmap` that forked processes search with together, or in a private one of `table_mb`.
 
-    def __init__(self, match: Match, rules: Rules, table_mb: int = 256, table: mmap.mmap | None = None):
+    With `exact` a decided position answers only for the very same state. Without, it answers for every state
+    that looks the same from outside (place, speeds, action and its frame, shield): many times fewer positions,
+    but what a fighter was holding is not part of that look, so an answer can be wrong.
+
+    A match searches for one `Forced` at a time: making another for the same match retires this one."""
+
+    def __init__(self, match: Match, rules: Rules, table_mb: int = 256, table: mmap.mmap | None = None,
+                 exact: bool = True):
         self.m, self.rules = match, rules
         self.table = table if table is not None else mmap.mmap(-1, table_mb << 20)
         self._memory = (ctypes.c_char * len(self.table)).from_buffer(self.table)
@@ -183,7 +190,13 @@ class Forced:
         self._att = (ctypes.c_int32 * engine.MAX_MENU_MOVES)()
         self._dfn = (ctypes.c_int32 * engine.MAX_MENU_MOVES)()
         self._natt, self._ndfn, self._holds = ctypes.c_uint32(), ctypes.c_uint32(), ctypes.c_int32()
-        engine.ok(match.lib.msl_brute_begin(match.brute, ctypes.byref(rules.data), self._memory, len(self.table)))
+        engine.ok(match.lib.msl_brute_begin(match.brute, ctypes.byref(rules.data), self._memory, len(self.table),
+                                            exact))
+        match.forced = self
+
+    def _mine(self) -> None:
+        if self.m.forced is not self:
+            raise RuntimeError("this match has since been given another Forced")
 
     def _pack(self, move) -> int:
         if move is None:
@@ -195,6 +208,7 @@ class Forced:
         return None if move < 0 else (self.rules.names[move & 0xFF], move >> 8 & 0xFFFF, -1 if move >> 24 else 1)
 
     def stats(self) -> engine.Stats:
+        self._mine()
         s = engine.Stats()
         engine.ok(self.m.lib.msl_brute_stats(self.m.brute, ctypes.byref(s)))
         return s
@@ -206,11 +220,13 @@ class Forced:
     def play(self, pa, pd):
         """Play P1 move `pa` against P2 move `pd` until one of them ends or someone is hit. Returns
         (outcome, frames used, P1's unfinished move, P2's unfinished move)."""
+        self._mine()
         p = self._play
         engine.ok(self.m.lib.msl_brute_play(self.m.brute, self._pack(pa), self._pack(pd), ctypes.byref(p)))
         return p.outcome, p.frames, self._unpack(p.attacker), self._unpack(p.defender)
 
     def options(self, pa=None, pd=None):
+        self._mine()
         engine.ok(self.m.lib.msl_brute_options(
             self.m.brute, self._pack(pa), self._pack(pd), ctypes.byref(self._att), ctypes.byref(self._natt),
             ctypes.byref(self._dfn), ctypes.byref(self._ndfn)))
@@ -219,6 +235,7 @@ class Forced:
 
     def known_win(self, pa) -> bool:
         """Is this a position the rules' trap counts as won, with the attacker free to pick?"""
+        self._mine()
         engine.ok(self.m.lib.msl_brute_trapped(self.m.brute, ctypes.byref(self._holds)))
         return pa is None and bool(self._holds.value)
 
@@ -232,6 +249,7 @@ class Forced:
         """With `attacking`, is the first hit forced for P1; without, can P2 always avoid it? The side asked
         about picks first and the other answers. Uses checkpoint levels from `depth` up and leaves the state
         as it found it."""
+        self._mine()
         engine.ok(self.m.lib.msl_brute_search(self.m.brute, frames, self._pack(pa), self._pack(pd), depth,
                                               attacking, ctypes.byref(self._holds)))
         return bool(self._holds.value)
@@ -285,19 +303,19 @@ def _task(job):
 
 def solve(root: bytes, rules: Rules, frames: int, mode: str = "win", workers: int | None = None,
           match: tuple = ("FOX", "FOX", "FINAL_DESTINATION"), data_dir=None, table_mb: int = 2048,
-          out: str | None = None, tag: str = "") -> dict:
+          out: str | None = None, tag: str = "", exact: bool = True) -> dict:
     """Run `Forced` from savestate `root` on many processes. `mode` is "win" or "safe". Returns which first
     moves hold and what beats the rest.
 
     The processes are forked from one that holds the root, so they share the game data and one table of
     decided positions, `table_mb` in all. The process count is cut to what the free memory holds. Finished
     jobs are appended to the file `out`; a later call with the same `out`, question and `tag` (name the root
-    position and the rules with it) skips them."""
+    position and the rules with it) skips them. `exact` is as in `Forced`."""
     global _F, _CFG
     t0 = time.time()
     attacking = mode == "win"
     workers = fit_workers(workers or mp.cpu_count(), table_mb)
-    ask = {"frames": frames, "mode": mode, "match": list(match), "tag": tag}
+    ask = {"frames": frames, "mode": mode, "match": list(match), "tag": tag, "exact": exact}
     old: dict[str, tuple[bool, int]] = {}
     if out and os.path.exists(out):
         with open(out) as f:
@@ -307,7 +325,8 @@ def solve(root: bytes, rules: Rules, frames: int, mode: str = "win", workers: in
     log = open(out, "a") if out else None
     m = Match(*match, data_dir=data_dir)
     m.load(root)
-    _F, _CFG = Forced(m, rules, table=mmap.mmap(-1, table_mb << 20)), {"attacking": attacking, "frames": frames}
+    _F = Forced(m, rules, table=mmap.mmap(-1, table_mb << 20), exact=exact)
+    _CFG = {"attacking": attacking, "frames": frames}
     att, dfn = _F.options()
     result: dict[tuple, bool] = {}
     total = 0

@@ -627,8 +627,9 @@ MslResult msl_brute_step(MslBrute* brute, const MslInput* input) {
 }
 
 MslResult msl_brute_begin(MslBrute* brute, const MslBruteRules* rules, void* table,
-                          size_t table_bytes) {
-  return public_result(msl_core_brute_begin((MslCoreBrute*)brute, rules, table, table_bytes));
+                          size_t table_bytes, int exact) {
+  return public_result(
+      msl_core_brute_begin((MslCoreBrute*)brute, rules, table, table_bytes, exact));
 }
 
 MslResult msl_brute_play(MslBrute* brute, int32_t attacker, int32_t defender, MslBrutePlay* out) {

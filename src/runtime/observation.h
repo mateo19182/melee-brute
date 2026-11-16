@@ -29,5 +29,10 @@ typedef struct MslCoreBruteView {
 } MslCoreBruteView;
 void msl_core_match_brute_view(const MslCoreMatch* match, int player,
                                MslCoreBruteView* out);
+// What a player looks like from outside, coarsely: position and speeds to
+// 0.01, action and its frame, hitlag, shield to 0.1, facing, jumps left.
+enum { MSL_CORE_BRUTE_LOOK_FIELDS = 11 };
+void msl_core_match_brute_look(const MslCoreMatch* match, int player,
+                               int64_t out[MSL_CORE_BRUTE_LOOK_FIELDS]);
 
 #endif

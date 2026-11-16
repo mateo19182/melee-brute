@@ -31,6 +31,7 @@ enum {
     BRUTE_LEVEL_UNSET = UINT32_MAX,
     BRUTE_TABLE_WAYS = 4,
     BRUTE_NO_WIN = 0xFFF,
+    BRUTE_SCAN_FRAMES = 3,
 };
 
 typedef struct BruteSpan {
@@ -83,6 +84,7 @@ struct MslCoreBrute {
     uint64_t salt;
     BruteEntry* table;
     uint64_t table_mask; // of buckets
+    int exact;
     int failed;
     MslBruteStats stats;
     // Move ordering, by question asked: how often a move held, how often an
@@ -807,7 +809,6 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
     uint32_t i;
     uint64_t key[2];
     uint64_t started = brute->stats.positions;
-    int good = attacking ? 1 : -1;
 
     if (frames <= 0) {
         return !attacking;
@@ -826,7 +827,15 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
                           (uint32_t) defender) ^ brute->salt;
         uint32_t win;
         uint32_t safe;
-        state_hash(brute, key);
+        if (brute->exact) {
+            state_hash(brute, key);
+        } else {
+            int64_t look[2 * MSL_CORE_BRUTE_LOOK_FIELDS];
+            msl_core_match_brute_look(brute->match, 0, look);
+            msl_core_match_brute_look(brute->match, 1,
+                                      look + MSL_CORE_BRUTE_LOOK_FIELDS);
+            hash_bytes((const uint8_t*) look, sizeof(look), 0, key);
+        }
         key[0] ^= mix64(moves + (uint64_t) attacking, 0x9E3779B97F4A7C15ULL);
         key[1] ^= mix64(moves ^ 0xD1B54A32D192ED03ULL,
                         0xC2B2AE3D27D4EB4FULL + (uint64_t) attacking);
@@ -860,7 +869,6 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
         int32_t x = mine[mine_order[i]];
         BruteRecord* against = brute->countered[attacking][MOVE_ID(x)];
         uint64_t move_started = brute->stats.positions;
-        uint32_t count = 0;
         uint32_t j;
         int refuted = 0;
         order_moves(theirs, theirs_count, against, brute->refuted[attacking],
@@ -868,33 +876,48 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
         // Every answer is looked at first: one that settles the line at once
         // for the other side refutes the move, and the lines that are settled
         // either way need no second look.
-        for (j = 0; j < theirs_count && !refuted; ++j) {
+        // With many frames left, every answer is played before any is
+        // searched: finding one that settles the line at once costs a few
+        // positions, against a whole search if it waited its turn. Near the
+        // end searches are small, and playing only as far as the refutation
+        // is cheaper.
+        for (j = 0; j < theirs_count; ++j) {
+            settled[j] = -2;
+        }
+        for (j = 0; j < theirs_count && !refuted && frames > BRUTE_SCAN_FRAMES;
+             ++j)
+        {
             int32_t y = theirs[theirs_order[j]];
             MslCoreBruteView after[2];
-            play(brute, attacking ? x : y, attacking ? y : x, &kids[count],
-                 after);
-            settled[count] = settle(brute, &kids[count], after, frames,
-                                    attacking);
+            play(brute, attacking ? x : y, attacking ? y : x, &kids[j], after);
+            settled[j] = (int8_t) settle(brute, &kids[j], after, frames,
+                                         attacking);
             rollback(brute, level);
-            if (settled[count] == 0) {
+            if (settled[j] == 0) {
                 refuted = 1;
                 record_add(&against[MOVE_ID(y)], 1, 1);
                 record_add(&brute->refuted[attacking][MOVE_ID(y)], 1, 1);
             }
-            count += 1;
         }
-        for (j = 0; j < count && !refuted && !brute->failed; ++j) {
+        for (j = 0; j < theirs_count && !refuted && !brute->failed; ++j) {
             int32_t y = theirs[theirs_order[j]];
             uint64_t answer_started = brute->stats.positions;
             MslCoreBruteView after[2];
-            MslBrutePlay again;
-            if (settled[j] >= 0) {
+            int value = settled[j];
+            if (value >= 0) {
                 continue;
             }
-            play(brute, attacking ? x : y, attacking ? y : x, &again, after);
-            refuted = !search(brute, frames - kids[j].frames, kids[j].attacker,
-                              kids[j].defender, level + 1, attacking);
+            play(brute, attacking ? x : y, attacking ? y : x, &kids[j], after);
+            if (value == -2) {
+                value = settle(brute, &kids[j], after, frames, attacking);
+            }
+            if (value < 0) {
+                value = search(brute, frames - kids[j].frames,
+                               kids[j].attacker, kids[j].defender, level + 1,
+                               attacking);
+            }
             rollback(brute, level);
+            refuted = !value;
             record_add(&against[MOVE_ID(y)], refuted,
                        brute->stats.positions - answer_started);
             record_add(&brute->refuted[attacking][MOVE_ID(y)], refuted,
@@ -922,7 +945,7 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
 
 MslCoreResult msl_core_brute_begin(MslCoreBrute* brute,
                                    const MslBruteRules* rules, void* table,
-                                   size_t table_bytes)
+                                   size_t table_bytes, int exact)
 {
     MslCoreBruteView view[2];
     uint64_t rules_hash[2];
@@ -971,7 +994,8 @@ MslCoreResult msl_core_brute_begin(MslCoreBrute* brute,
                         0x9E3779B97F4A7C15ULL);
     memcpy(rules_hash, &view[0].percent, sizeof(float));
     memcpy((uint8_t*) rules_hash + 4, &view[1].percent, sizeof(float));
-    brute->salt ^= mix64(rules_hash[0], 0xD1B54A32D192ED03ULL);
+    brute->salt ^= mix64(rules_hash[0], 0xD1B54A32D192ED03ULL) + (uint64_t) (exact != 0);
+    brute->exact = exact != 0;
     brute->table = NULL;
     brute->table_mask = 0;
     if (table != NULL) {
@@ -1119,8 +1143,9 @@ MslCoreResult msl_core_brute_step(MslCoreBrute* brute, const MslInput* input)
 
 MslCoreResult msl_core_brute_begin(MslCoreBrute* brute,
                                    const MslBruteRules* rules, void* table,
-                                   size_t table_bytes)
+                                   size_t table_bytes, int exact)
 {
+    (void) exact;
     (void) brute;
     (void) rules;
     (void) table;
