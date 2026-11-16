@@ -26,7 +26,9 @@ def bench(args) -> None:
     def position():
         with m.branch():
             m.step(pad(B, y=-80))
-    print(f"branch, step, undo   {timed(position, 5000):7.1f} us  (one searched position)")
+    with m.branch():  # inside a search: only the root rollback pays for the full exactness check
+        print(f"branch, step, undo   {timed(position, 5000):7.1f} us  (one searched position)")
+    print(f"the same at the root {timed(position, 500):7.1f} us  (includes the full check)")
     print(f"pages a rollback missed and repaired: {m.missed}")
 
 
