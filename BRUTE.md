@@ -59,6 +59,8 @@ python -m melee_brute fox --gap 11.5 --hop 9 --frames 16 --safe --trap
 
 The last one starts with the attacker nine frames into a short hop above a cornered Fox and finds that the defender's only move that holds without guessing is shield: his shine, safe when both stand, is not safe against a Fox in the air.
 
+That result predates a fix to `fox.py`'s menus, which now let a shielding Fox jump out of shield (`jump_oos`, X with R held; X alone only dropped the shield) and shine on his first airborne frame; the 6-frame check in the tests still passes with them, but the 16-frame run above has not been repeated.
+
 ## How fast
 
 On a Ryzen 9 5950X (16 cores), measured on an otherwise quiet machine with the same code inside [melee-llm](https://github.com/mateo19182/melee-llm):

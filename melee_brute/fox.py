@@ -1,7 +1,7 @@
 """A worked example: Fox against Fox on Final Destination, with the defender cornered at the ledge.
 
 `RULES` gives each Fox a menu that depends on his state: 11 moves standing, 6 in the air, 7 in shield, 3 in the
-shine, 3 in jumpsquat, and only "wait" while he cannot act. Most moves last one or two frames, so both sides
+shine, 4 in jumpsquat, and only "wait" while he cannot act. Most moves last one or two frames, so both sides
 decide almost every frame.
 """
 from __future__ import annotations
@@ -17,13 +17,14 @@ MOVES = {
     "fullhop": (pad(X),) * 3, "shield2": (_SHIELD, _SHIELD), "hold_shield": (_SHIELD, _SHIELD),
     "roll_in": (pad(R, x=80, r=255),), "roll_out": (pad(R, x=-80, r=255),), "spotdodge": (pad(R, y=-80, r=255),),
     "shield_grab": (pad(R | A, r=255),), "jump": (pad(X),), "nair": (pad(A),),
+    "jump_oos": (pad(R | X, r=255),),  # X alone only drops the shield: the jump needs R still held
 }
 MENUS = {
     "ground": ("wait2", "in2", "out2", "shine", "jab", "hop", "hop_in", "fullhop", "shield2", "grab", "usmash"),
     "air": ("wait2", "in2", "out2", "shine", "jump", "nair"),
-    "squat": ("wait", "in", "out"),
+    "squat": ("wait", "in", "out", "shine"),  # B on the last squat frame is a shine on the first airborne one
     "shine": ("wait", "hold_b", "jump"),
-    "shield": ("hold_shield", "wait", "jump", "roll_in", "roll_out", "spotdodge", "shield_grab"),
+    "shield": ("hold_shield", "wait", "jump_oos", "roll_in", "roll_out", "spotdodge", "shield_grab"),
     "locked": ("wait",),
 }
 # Action ids (the game's own, see API.md): standing, walking, turning, dashing, running, crouching, landing

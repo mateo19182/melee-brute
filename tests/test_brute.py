@@ -101,3 +101,26 @@ def test_against_a_fox_in_the_air_only_shield_is_safe():
             holds.add(d[0])
     assert holds == {"shield2"}
     assert not f.win(6)
+
+
+def test_jump_out_of_shield_needs_the_shield_button_held():
+    from melee_brute import Match, X, fox, pad
+    m = Match()
+    m.start()
+    m.step(pad(), fox.MOVES["shield2"][0], frames=12)
+    assert int(m.players()[1]["action_id"]) in fox.SHIELD
+
+    def reaches_squat(move):
+        with m.branch():
+            for p in fox.MOVES[move]:
+                m.step(pad(), p)
+            for _ in range(3):
+                if int(m.players()[1]["action_id"]) in fox.SQUAT:
+                    return True
+                m.step(pad(), fox.MOVES["hold_shield"][0] if move == "jump_oos" else pad())
+        return False
+
+    assert fox.MOVES["jump"] == (pad(X),)
+    assert reaches_squat("jump_oos") and not reaches_squat("jump")
+    assert "jump_oos" in fox.MENUS["shield"] and "jump" not in fox.MENUS["shield"]
+    assert "shine" in fox.MENUS["squat"]
