@@ -482,6 +482,41 @@ MslResult msl_batch_copy(MslBatch* destination, const MslBatch* source,
   return MSL_OK;
 }
 
+MslResult msl_batch_checkpoint_size(const MslBatch* batch, uint32_t env_index,
+                                    size_t* required_size) {
+  if (batch == NULL) {
+    return MSL_INVALID_ARGUMENT;
+  }
+  return public_result(msl_core_batch_checkpoint_size(batch->runtime, env_index, required_size));
+}
+
+MslResult msl_batch_checkpoint(const MslBatch* batch, uint32_t env_index, void* buffer,
+                               size_t buffer_size, const uint32_t pages[], uint32_t page_count) {
+  if (batch == NULL) {
+    return MSL_INVALID_ARGUMENT;
+  }
+  return public_result(
+      msl_core_batch_checkpoint(batch->runtime, env_index, buffer, buffer_size, pages, page_count));
+}
+
+MslResult msl_batch_rollback(MslBatch* batch, uint32_t env_index, const void* buffer,
+                             size_t buffer_size, const uint32_t pages[], uint32_t page_count) {
+  if (batch == NULL) {
+    return MSL_INVALID_ARGUMENT;
+  }
+  return public_result(
+      msl_core_batch_rollback(batch->runtime, env_index, buffer, buffer_size, pages, page_count));
+}
+
+MslResult msl_batch_diff_pages(const MslBatch* batch, uint32_t env_index, const void* buffer,
+                               size_t buffer_size, uint8_t page_flags[], uint32_t flag_count) {
+  if (batch == NULL) {
+    return MSL_INVALID_ARGUMENT;
+  }
+  return public_result(msl_core_batch_diff_pages(batch->runtime, env_index, buffer, buffer_size,
+                                                 page_flags, flag_count));
+}
+
 MslResult msl_batch_save_size(const MslBatch* batch, uint32_t env_index, size_t* required_size) {
   size_t payload_size;
   MslCoreResult result;

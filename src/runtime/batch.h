@@ -65,4 +65,20 @@ MslCoreResult msl_core_batch_restore_match(
     MslCoreBatch* batch, uint32_t match_index, const void* buffer,
     size_t buffer_size);
 
+
+// Checkpoint and rollback of one match in place (melee-llm patch). The buffer holds the match struct followed by
+// the whole arena. `pages` lists the 4 KiB arena pages to copy; NULL copies the whole arena. A rollback goes back
+// to the same address, so no pointer relocation is needed.
+MslCoreResult msl_core_batch_checkpoint_size(
+    const MslCoreBatch* batch, uint32_t match_index, size_t* required_size);
+MslCoreResult msl_core_batch_checkpoint(
+    const MslCoreBatch* batch, uint32_t match_index, void* buffer,
+    size_t buffer_size, const uint32_t* pages, uint32_t page_count);
+MslCoreResult msl_core_batch_rollback(
+    MslCoreBatch* batch, uint32_t match_index, const void* buffer,
+    size_t buffer_size, const uint32_t* pages, uint32_t page_count);
+MslCoreResult msl_core_batch_diff_pages(
+    const MslCoreBatch* batch, uint32_t match_index, const void* buffer,
+    size_t buffer_size, uint8_t* page_flags, uint32_t flag_count);
+
 #endif

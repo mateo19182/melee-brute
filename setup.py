@@ -41,7 +41,7 @@ class BuildPythonApi(build_py):
 
 
 setup(
-    packages=find_packages(include=("melee_sim", "tools", "tools.data")),
+    packages=find_packages(include=("melee_sim", "melee_brute", "tools", "tools.data")),
     package_data={"melee_sim": ["libmelee_core.so"]},
     include_package_data=False,
     distclass=NativeDistribution,
