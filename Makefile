@@ -1003,11 +1003,11 @@ validation-coverage: validator
 DIFFERENTIAL_CANDIDATES ?= $(BUILD_ROOT)/python-release/libmelee_core.so
 validation-differential: python-library python-release
 	@MSL_DATA_DIR="$(abspath $(MSL_DATA_DIR))" "$(PY)" -m tools.validation.differential \
-		check --reference "$(PYTHON_LIBRARY)" \
-		$(foreach lib,$(DIFFERENTIAL_CANDIDATES),--candidate "$(lib)") $(VALIDATION_ARGS)
+		$(VALIDATION_ARGS) check --reference "$(PYTHON_LIBRARY)" \
+		$(foreach lib,$(DIFFERENTIAL_CANDIDATES),--candidate "$(lib)")
 	@for lib in $(DIFFERENTIAL_CANDIDATES); do \
 		MSL_DATA_DIR="$(abspath $(MSL_DATA_DIR))" "$(PY)" -m tools.validation.differential \
-			takeback --library "$$lib" || exit 1; \
+			$(VALIDATION_ARGS) takeback --library "$$lib" || exit 1; \
 	done
 
 # A library that counts lines and marks basic blocks, for choosing the tapes
@@ -1028,7 +1028,7 @@ python-coverage:
 validation-tape-coverage: python-coverage
 	@find "$(PYTHON_COVERAGE_BUILD)" -name '*.gcda' -delete
 	@MSL_DATA_DIR="$(abspath $(MSL_DATA_DIR))" "$(PY)" -m tools.validation.differential \
-		play --counts --library "$(PYTHON_COVERAGE_BUILD)/libmelee_core.so"
+		$(VALIDATION_ARGS) play --counts --library "$(PYTHON_COVERAGE_BUILD)/libmelee_core.so"
 	@"$(PY)" -m tools.validation.coverage_report "$(PYTHON_COVERAGE_BUILD)/obj" \
 		$(wildcard $(VALIDATION_COVERAGE_BUILD)/obj) \
 		--json "$(PYTHON_COVERAGE_BUILD)/coverage.json"
