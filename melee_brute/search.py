@@ -205,6 +205,19 @@ WORKER_MB = 200  # a forked search process: its checkpoints and the pages it has
 RESERVE_MB = 4_000  # memory left for everything else on the machine
 
 
+def physical_cores() -> int:
+    """Cores, not hardware threads: two searches on one core's two threads share its caches, and each then
+    runs at little more than half speed (Linux; elsewhere the thread count)."""
+    cores = set()
+    for cpu in os.sched_getaffinity(0) if hasattr(os, "sched_getaffinity") else ():
+        try:
+            with open(f"/sys/devices/system/cpu/cpu{cpu}/topology/core_cpus_list") as f:
+                cores.add(f.read().strip())
+        except OSError:
+            return mp.cpu_count()
+    return len(cores) or mp.cpu_count()
+
+
 def fit_workers(workers: int, table_mb: int) -> int:
     """As many processes as the free memory holds next to the table (Linux; elsewhere `workers`)."""
     try:
@@ -354,13 +367,14 @@ def solve(root: bytes, rules: Rules, frames: int, mode: str = "win", workers: in
     moves hold and what beats the rest.
 
     The processes are forked from one that holds the root, so they share the game data and one table of
-    decided positions, `table_mb` in all. The process count is cut to what the free memory holds. Finished
+    decided positions, `table_mb` in all. By default there is one process for each core, cut to what the free
+    memory holds. Finished
     jobs are appended to the file `out`; a later call with the same `out`, question and `tag` (name the root
     position and the rules with it) skips them. `exact` is as in `Forced`."""
     global _F, _CFG
     t0 = time.time()
     attacking = mode == "win"
-    workers = fit_workers(workers or mp.cpu_count(), table_mb)
+    workers = fit_workers(workers or physical_cores(), table_mb)
     ask = {"frames": frames, "mode": mode, "match": list(match), "tag": tag, "exact": exact}
     old: dict[str, tuple[bool, int]] = {}
     if out and os.path.exists(out):

@@ -194,9 +194,14 @@ profile-guided builds, a searched position is near its floor for this formulatio
 1. **The frame in a search.** Train the profile on solver positions as well as recordings. Then
    see whether pose work for bones no hitbox, hurtbox or collision point depends on can be skipped;
    the differential gate can now check that.
-2. **Process scheduling.** Helpers recover idle time but repeat some work. Splitting a large job
-   into its children, which the shared table already makes cheap, would scale better past 16
-   processes. On a busy machine a position cost 29.5 µs on one process and 57 µs on 28.
+2. **Process scheduling.** Measured 2026-11-17 on a 13-frame solve (11 to 12 million positions,
+   16 cores, 32 threads): 8 processes 28.3 s at 19.5 µs a position, 16 processes 18.6 s at 23.8 µs,
+   30 processes 25.5 s at 42 µs. Past one process a core, the second thread of each core nearly
+   doubles the cost of a position, so `solve` now starts one process a core. At 16 the processes
+   are busy 92% of the time and the largest of 204 jobs is under half of one process's share:
+   splitting jobs further would gain at most 8% here. It becomes worth doing on a machine with
+   many more cores, where a single job can exceed one process's share. The cost of a position
+   still rises 22% from 8 to 16 processes; that is shared cache and memory, not scheduling.
 3. **The question, not the engine.** The remaining factors of ten are in what is asked: fewer or
    longer moves in the menus, zones of known result that end lines early, and the look-alike table
    for exploring before an exact run confirms. The two tables agree on all 360 corpus positions.
