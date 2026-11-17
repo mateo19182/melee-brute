@@ -55,6 +55,7 @@ score, line = best(m, choices, 4, lambda m: float(m.players()[0]["pos_x"]))
 
 ```bash
 python -m melee_brute bench                                    # time a frame, a checkpoint, a rollback
+python -m melee_brute corpus                                   # solve 360 recorded positions again and compare
 python -m melee_brute fox --gap 9 --frames 10                  # attacker vs a Fox cornered at the ledge
 python -m melee_brute fox --gap 11.5 --hop 9 --frames 16 --safe --trap
 ```
