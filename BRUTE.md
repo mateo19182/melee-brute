@@ -78,11 +78,13 @@ On a Ryzen 9 5950X (16 cores) that was busy with other work (load 15 to 35), so 
 | 12 positions of 8 to 10 frames, one core | 39.8 s | 3.8 s | 27.2 s |
 | positions searched for them | 328,000 | 130,000 | 933,000 |
 | one position | 90 to 150 µs | 25 to 30 µs | 25 to 30 µs |
-| 11 frames, "is the defender safe", 16 processes | 16.2 s | 5.1 s | 9.8 s |
-| 11 frames, "can the attacker force it", 16 processes | 20.0 s | 4.6 s | 7.0 s |
+| 11 frames, "is the defender safe", 16 processes | 16.2 s | 5.1 s | 9.7 s |
+| 11 frames, "can the attacker force it", 16 processes | 20.0 s | 4.6 s | 7.1 s |
+| 14 frames, "is the defender safe", 16 processes | 77.3 s | 12.5 s | 67.5 s |
+| positions searched for it | 6.2 million | 2.8 million | 26 million |
 
-- Before and look-alike use the same table key, so that column is the like-for-like speed-up: about 10 times on one core, 3 to 4 times on 16 processes at this size, where a second and a half is start-up.
-- Exact is a different, stricter question, and at point-blank range it is slower than before: one such position took 0.06 s before and takes 1.8 s exactly.
+- Before and look-alike use the same table key, so that column is the like-for-like speed-up: about 10 times on one core and 3 to 6 times on 16 processes, where a second and a half of each run is start-up.
+- Exact is a stricter question with 3 to 200 times the positions. It is faster than before on most of these and slower at point-blank range, where one position took 0.06 s before and takes 1.8 s exactly.
 - Every answer in the table above is the same in all three columns.
 
 | Operation | Time |
@@ -112,7 +114,7 @@ On a Ryzen 9 5950X (16 cores) that was busy with other work (load 15 to 35), so 
 - A line that is settled when its joint move ends (someone was hit, the frames ran out, the trap closed) is never played twice.
 - With more than three frames left, all answers to a move are played once before any is searched, so that an answer that hits at once is found for a few positions. Nearer the end, each answer is played and searched on the spot.
 - Answers are tried in falling order of how often they have refuted per position they cost, counted separately against each move.
-- `solve` forks its processes from one that holds the root. They share the game data and the table, so a position decided by one is known to all.
+- `solve` forks its processes from one that holds the root. They share the game data and the table, so a position decided by one is known to all. A process with no job left helps the unfinished job with the fewest helpers: it searches the same position starting from other moves, and the two meet through the table.
 
 ## What changed in the simulator
 
@@ -134,5 +136,5 @@ git fetch upstream && git merge upstream/main
 - Versus mode only, with the simulator's rules: UCF, no items, frozen Pokémon Stadium, no CPU opponents.
 - The game's random numbers run as in the simulator; a line found here replays on Dolphin only while no random event differs.
 - `Forced` proves things about the moves you give it and the frames you allow, no more. `fox.py`'s menus are a starting point, not the whole game.
-- Take-back and the search need Linux: they use page protection and `fork`. A `Match` must be closed (or collected) before its process exits normally; it lifts the protection.
+- Take-back and the search need Linux: they use page protection and `fork`.
 - The simulator has no license file. Its author agreed to this fork being published on GitHub.
