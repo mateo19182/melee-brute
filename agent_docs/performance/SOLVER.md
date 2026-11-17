@@ -117,27 +117,73 @@ Measured 2026-11-17. `make validation-coverage` counts the lines the 524 recordi
 - The release library matches the `-O0` reference on every frame of every tape (246,000 frames),
   and the search's take-back and state hash hold on 4,100 checks across the whole roster, teams,
   followers and items.
-- About a third of the source is still run by neither. Part of it cannot run under the supported
-  rules (items off, no CPU players, no single-player modes): hammer, mushroom, barrel, warp star,
-  `ftcpuattack.c`, Stadium's transformations. That part has not been listed, so the reachable gap
-  is not known yet.
+- About a third of the source is still run by neither. Most of that cannot run in a competitive
+  match. Classifying every function of `melee/ft`, `melee/it`, `melee/gr` and `melee/mp` (99,000
+  lines, 27,700 unrun) gives:
+
+  | Class | Lines | Run |
+  | --- | --- | --- |
+  | cannot run under the rules: items, CPU types other than Nana's, 1P and demo, Stadium's transformations, display-only, code nothing in the build references | 10,211 | 1.6% |
+  | competitive fighters' own code and shared gameplay code | 57,871 | 83.0% |
+  | Nana's CPU AI, inside functions she runs | 5,397 | 65.3% |
+  | only reachable by fighters outside competitive practice (Kirby, Ness, Link, Mewtwo, ...) | 24,907 | 78.9% |
+  | never called, referenced only from tables or cycles; not attributed | 684 | 0% |
+
+  **Of the code a competitive match can reach, the gates run 81.5%** (51,570 of 63,268 lines,
+  Nana's AI included; 80.6% if the unattributed lines are reachable too). Per fighter, own code
+  plus own projectiles: Donkey Kong 70.8%, Peach 72.5% (with her pulls), Yoshi 80.5%, Jigglypuff
+  80.9%, Dr. Mario 84.7%, Marth 84.9%, Fox/Falco 87.7%, Pikachu 88.2%, Luigi 89.1%, Sheik 90.6%,
+  Samus 90.9%, Ice Climbers 92.2%, Falcon/Ganondorf 93.0%.
+- How: per-function lines from both coverage builds; rules by owner and file (fighter directory,
+  item file, `ftCo_*` state); never-called shared functions take the class of whatever references
+  them in the source (a running function makes them reachable, nothing makes them dead). Display
+  code, Nana's CPU type (`xC = 6` in `ftCo_800A101C`) and Peach's pulls (`itpeachturnip.c`: Bob-omb,
+  Mr. Saturn, Beam Sword) were read in the source; the rest of the CPU AI is assumed to belong to
+  other CPU types. The scripts are in `reports/triage/coverage-classes/` (ignored).
 - Seeded random controllers level off: 1,776 candidate matches reach 43,411 blocks and 82 of them
-  reach 42,289. More seeds add little. What is left needs controllers that set things up on
-  purpose.
+  reach 42,289. More seeds add little. A purpose-built Peach that pulls on every chance (17 pulls
+  a tape, Mr. Saturn and Bob-omb in some) added 65 blocks and no line the recordings do not
+  already run, so it was not kept.
 
 ## Proposed next
 
 ### 1. Closing the coverage gap
 
-The differential gate, the roster-wide take-back check and the corpus of solved positions exist.
-What is left of this step:
+Competitive-reachable code is at 81.5%. What is left, most likely in a real match first, with what a
+controller would have to do. Line counts are unrun lines of that class.
 
-1. **A list of unreachable owners**, so the report states coverage of reachable code and the target
-   can be 95% of it.
-2. **Controllers with a purpose.** Per fighter: every special in every state it has (charged,
-   held, cancelled, in the air, into a wall, out of a grab), Kirby's swallow of each fighter and
-   each copied special, Peach's pulls until the rare ones come, every throw on every weight,
-   shield breaks, ledge and wall options, deaths off each blast zone. Keep them by coverage as now.
+1. **Nana alone** (1,874 lines in her AI). Separate the climbers and keep them apart: Popo
+   recovers or runs off while Nana is in hitstun or far away. Her AI also branches on the CPU
+   level it is given; which of the 1,874 lines a versus match can reach is not verified.
+2. **Collision corner cases** (1,388 in `mp/` and `ftcoll.c`): the grounded left/right wall and
+   ceiling push of `mpColl_8004C534` never runs. Recover into the underside of Battlefield and
+   Final Destination, up-special into ceilings and walls, wall jumps and wall techs.
+3. **Item core** (1,211 in `it/*.c`) and held items (167): projectiles and turnips meeting walls,
+   platforms and each other; catching, dropping and throwing in the air.
+4. **Peach's rare pulls** (531): Bob-omb walking and exploding on its own, Mr. Saturn walking and
+   picked up by the opponent, Beam Sword swings. Pulling alone is not enough (see above): drop the
+   item and leave it, and have the other side pick it up.
+5. **Donkey Kong** (319): carrying in cargo (walk, turn, jump, land, throw each way) and side
+   special burying a grounded opponent.
+6. **Yoshi** (253): egg lay on each weight, grounded and aerial, escaping from the egg, tongue
+   at a ledge.
+7. **Projectile interactions** (221, plus Samus 177 and Dr. Mario's pill 84): reflected, absorbed,
+   clanked and shield-bounced shots. Fox or Falco shining when a laser, charge shot, pill or
+   needle is near; shielding a charge shot.
+8. **Ice Climbers' up special and freeze** (212): belay with Nana's rope throw, and the frozen
+   state (`ftCo_DamageIce`) after it is entered, which the gates do reach but barely run.
+9. **Specials at an edge**: Jigglypuff's rollout turned in the air (137), Sheik's chain (127),
+   Peach's float, parasol and bomber end (111), Marth's dancing blade between ground and air
+   (87), Luigi's green missile across a ledge (59). Start the special next to a ledge or
+   platform edge and keep or reverse the stick.
+10. **Knockdown bounces** (117): spiked onto the ground without a tech, sliding into a wall while
+    down.
+11. **Yoshi's Story Shy Guys** (111): hit one so its food drops, then pick it up.
+12. **Rare common states**: throws that end in the air (31), shield break next to a ledge (22).
+
+Stage code (1,044 unrun in `gr/`, mostly branches in `ground.c`) is not attributed further.
+Kirby, Ness, Link, Mewtwo and the other non-competitive fighters (5,255 unrun) are left out on
+purpose. The gates check none of the unrun lines on the release build.
 
 ### 2. Speed
 
