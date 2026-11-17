@@ -105,6 +105,8 @@ On a Ryzen 9 5950X (16 cores) that was busy with other work (load 15 to 35), so 
 | savestate save and restore | about 4,500 µs |
 
 - `python -m melee_brute bench` prints these for your machine.
+- The tables above predate the current build profile. The simulator is now optimised across files at link time, checked exact on all 524 validation recordings: a searched position went from about 19.9 to 18 µs on a quieter machine.
+- A build guided by a profile of those recordings takes it to about 16.5 µs. It needs the recordings and the game data, so it is not what `pip` installs: run `make release-profile` and `make python-release RELEASE_PGO=use`, then point `MSL_CORE_LIBRARY` at `build/melee_core/python-release/libmelee_core.so`. See `agent_docs/ENVIRONMENT.md`.
 - Where a searched position goes: about two thirds simulating the frame, a quarter copying pages back, the rest hashing and bookkeeping.
 - Long searches are bounded: the table is `table_mb` in all (default 2 GB) and replaces its cheapest entries when full, the process count is cut to the free memory, and with `out=` (`--out`) finished jobs are saved so a rerun continues where it stopped.
 
