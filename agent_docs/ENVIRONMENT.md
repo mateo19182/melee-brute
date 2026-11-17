@@ -13,7 +13,7 @@ existing build accommodations and their limits.
 | Validation replay bytes | `git lfs pull --include="replays/validation/**" --exclude=""` | `unsupported .slpz version: 1986359923` (ASCII `vers` — an unsmudged LFS pointer) |
 | `refs/*` reference checkouts | `refs/README.md` | source-backing claims cannot be checked |
 | `build/melee_core/toolchain` | `make toolchain` | no `make ppc`, no PPC oracle backend |
-| `.venv` | `uv sync --dev` | `PY` default missing (`$(ROOT)/.venv/bin/python`) |
+| `.venv` | `uv sync --dev` (add `--python 3.12` if the default Python has no `pyarrow` wheel) | `PY` default missing (`$(ROOT)/.venv/bin/python`) |
 | Node + emcc | distro/emsdk install | no `wasm`, `viewer-build`, `viewer-smoke` |
 | Probe Dolphin build | `refs/README.md` | no retail ground truth for ULP triage |
 
@@ -58,9 +58,22 @@ make validator
   pinned compiler without root (see `build/host-gcc13/gcc13.sh` on the certified host).
 - The gate build is `-O0 -ffp-contract=off`; only `MSL/trigf.o` and `runtime/math.o` compile at
   `-O2 -ffp-contract=fast` with `-mfma`, which is why the profile is x86-64 in practice.
-- The **release** profile adds `-march=native -mtune=native` (`RELEASE_ARCH_FLAGS`), so that binary
-  is CPU-specific. Contraction stays off, so output is expected to be identical; confirm it once
-  per host with `make validation-release-supported-domain` rather than assuming it.
+- The **release** profile compiles every file at `-O2` or above with link-time optimization, and
+  adds `-march=native -mtune=native` (`RELEASE_ARCH_FLAGS`) to the listed owners, so that binary is
+  CPU-specific. Contraction stays off, so output is expected to be identical; confirm it once per
+  host with `make validation-release-supported-domain` rather than assuming it.
+- Two flag sets keep that profile exact, and no file is held at `-O0` any more. `RELEASE_MATH_FLAGS`
+  stops the compiler replacing the game's own `sinf`, `cosf`, `sqrtf` and the rest with host
+  built-ins, whose last bit differs: that was the cause of the output changes fighter and item code
+  showed above `-O0`. `RELEASE_SOURCE_FLAGS` keeps out-of-bounds reads, signed wraparound and null
+  checks as written; `ftPe_SpecialLw.c::pickVeg` reads one entry past its table and crashed without
+  it. Code the replays do not reach can hold more of the same, which is why these are global.
+- `make release-profile` plays the aggregate on an instrumented runner (about 40 s on 12 workers);
+  `RELEASE_PGO=use` on `native-release`, `python-release` or
+  `validation-release-supported-domain` then builds with those counts. Measured 2026-11-17 on a
+  Ryzen 9 5950X, gcc 13.3, all 524 recordings exact against the committed locks in each case:
+  runner CPU for the aggregate 88.9 s before, 62.4 s with link-time optimization, 56.7 s with the
+  profile as well.
 - The PPC oracle is host-independent: qemu's PPC FPU is softfloat and the cross compiler produced a
   bit-identical `melee-core-ppc` from amd64 and arm64 hosts (measured 2026-07-30). Only the host-arch
   half of the toolchain tree differs.

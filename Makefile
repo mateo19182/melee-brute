@@ -77,6 +77,7 @@ WASM_PROXY_COMPILE = "$(LLVM_CLANG)" --target=i386-unknown-linux-gnu \
 endif
 else
 TIMEOUT := timeout
+HOST_GNU := 1
 NATIVE_EXE_LINK_FLAGS := -no-pie -Wl,--gc-sections
 SHARED_LIB_LINK_FLAGS := -shared -Wl,--gc-sections -Wl,-Bsymbolic -Wl,-z,defs
 PY_EXT_LINK_FLAGS :=
@@ -322,14 +323,48 @@ HOSTED_LEGACY_CFLAGS := \
 NATIVE_CFLAGS = $(CFLAGS) $(HOST_ARCH_FLAGS) -fno-pie \
 	$(HOSTED_LEGACY_CFLAGS)
 NATIVE_LINK_FLAGS ?=
-# Native release uses a strict O1 source profile by default. The audited lists
-# below preserve lower exactness profiles or admit stronger measured owners.
+# Native release optimizes the whole source closure, across files at link
+# time. The audited lists below keep the levels measured for single owners.
 # `__fmadds` is an MWCC intrinsic, so release emits it directly instead of
 # paying an out-of-line call from every exact O0 source translation unit.
-NATIVE_RELEASE_CFLAGS := $(CFLAGS) -O1 -fno-pie -fomit-frame-pointer \
+# The game brings its own math library, and its results differ from the host's
+# in the last bit. An optimizing compiler otherwise folds these calls, fuses
+# sin and cos into the host's sincos, or inlines the host's square root.
+RELEASE_MATH_FLAGS := $(foreach f,sin cos tan asin acos atan atan2 exp log pow \
+	sqrt fmin fmax frexp sincos,-fno-builtin-$(f) -fno-builtin-$(f)f)
+# The source keeps the original's reliance on what its compiler did with
+# reads one past an array, signed wraparound and null checks; keep those as
+# written (ftPe_SpecialLw.c::pickVeg reads table[3] of 3 on its last pass).
+RELEASE_SOURCE_FLAGS := -fwrapv -fno-delete-null-pointer-checks
+ifeq ($(HOST_GNU),1)
+RELEASE_SOURCE_FLAGS += -fno-aggressive-loop-optimizations
+RELEASE_LTO ?= 1
+endif
+RELEASE_OPT ?= -O2
+ifeq ($(RELEASE_LTO),1)
+RELEASE_LTO_FLAGS := -flto
+RELEASE_LINK_FLAGS := -flto=auto $(RELEASE_OPT) -w
+endif
+# Optional profile-guided build: `make release-profile` plays the validation
+# replays on an instrumented runner, and RELEASE_PGO=use then builds either
+# release target with those counts. Code the replays never reach is compiled
+# as it is without a profile.
+RELEASE_PROFILE_DIR ?= $(BUILD_ROOT)/release-profile
+RELEASE_PROFILE_SUITE ?= replays/suites/melee_core_aggregate.json
+RELEASE_PROFILE_COUNTS := $(RELEASE_PROFILE_DIR)/counts
+ifeq ($(RELEASE_PGO),generate)
+RELEASE_PGO_FLAGS := -fprofile-generate -fprofile-dir=$(RELEASE_PROFILE_COUNTS)
+else ifeq ($(RELEASE_PGO),use)
+RELEASE_PGO_FLAGS := -fprofile-use -fprofile-dir=$(RELEASE_PROFILE_COUNTS) \
+	-fprofile-partial-training -Wno-missing-profile \
+	-Wno-error=coverage-mismatch
+endif
+RELEASE_LINK_FLAGS += $(RELEASE_PGO_FLAGS)
+NATIVE_RELEASE_CFLAGS := $(CFLAGS) $(RELEASE_OPT) -fno-pie -fomit-frame-pointer \
 	-fcf-protection=none -fno-asynchronous-unwind-tables -fno-unwind-tables \
 	$(HOSTED_LEGACY_CFLAGS) $(HOST_ARCH_FLAGS) $(FMA_FLAGS) \
-	-DMSL_NATIVE_INLINE_FMADDS
+	$(RELEASE_MATH_FLAGS) $(RELEASE_SOURCE_FLAGS) $(RELEASE_LTO_FLAGS) \
+	$(RELEASE_PGO_FLAGS) -DMSL_NATIVE_INLINE_FMADDS
 NATIVE_BASE_CFLAGS := $(NATIVE_CFLAGS)
 WASM_CFLAGS = $(CFLAGS) $(HOSTED_LEGACY_CFLAGS)
 NATIVE_LINK_FLAGS += -pthread
@@ -374,14 +409,11 @@ $(PYTHON_OBJ_DIR)/gameplay/MSL/trigf.o: override NATIVE_CFLAGS += -O2 -ffp-contr
 $(PYTHON_OBJ_DIR)/src/runtime/math.o: override NATIVE_CFLAGS += -O2 -ffp-contract=fast -fno-builtin-sinf -fno-builtin-cosf $(FMA_FLAGS)
 
 ifeq ($(NATIVE_RELEASE_PROFILE),1)
-# Fighter callback and item source closures, plus quaternion interpolation,
-# change canonical outputs when admitted at O1. Preserve their measured source
-# profiles while the remaining native closure uses the strict optimized default.
-NATIVE_RELEASE_O0_OBJS := \
-	$(filter-out $(NATIVE_OBJ_DIR)/gameplay/melee/ft/ftanim.o,\
-		$(filter $(NATIVE_OBJ_DIR)/gameplay/melee/ft/%,$(NATIVE_UPSTREAM_OBJS))) \
-	$(filter $(NATIVE_OBJ_DIR)/gameplay/melee/it/%,$(NATIVE_UPSTREAM_OBJS)) \
-	$(NATIVE_OBJ_DIR)/gameplay/sysdolphin/baselib/quatlib.o
+# No file needs -O0: the outputs that used to change above it came from host
+# math built-ins (RELEASE_MATH_FLAGS) and one out-of-bounds read
+# (RELEASE_SOURCE_FLAGS), not from the optimizer.
+NATIVE_LINK_FLAGS += $(RELEASE_LINK_FLAGS)
+SHARED_LIB_LINK_FLAGS += $(RELEASE_LINK_FLAGS)
 NATIVE_RELEASE_O1_OBJS := \
 	$(NATIVE_OBJ_DIR)/gameplay/melee/mp/mpcoll.o
 NATIVE_RELEASE_O2_OBJS := \
@@ -409,20 +441,18 @@ NATIVE_RELEASE_OPT_OBJS := \
 	$(NATIVE_OBJ_DIR)/generated/match_reloc_layout.o \
 	$(NATIVE_OBJ_DIR)/tests/melee_core/replay_bench.o
 $(NATIVE_OBJ_DIR)/gameplay/MSL/trigf.o: override NATIVE_CFLAGS += $(RELEASE_ARCH_FLAGS)
-$(NATIVE_RELEASE_O0_OBJS): override NATIVE_CFLAGS += -O0
 $(NATIVE_RELEASE_O1_OBJS): override NATIVE_CFLAGS += -O1 $(RELEASE_ARCH_FLAGS)
 $(NATIVE_RELEASE_O2_OBJS): override NATIVE_CFLAGS += -O2 $(RELEASE_ARCH_FLAGS)
 $(NATIVE_RELEASE_OPT_OBJS): override NATIVE_CFLAGS += -O3 $(RELEASE_ARCH_FLAGS)
-$(patsubst $(NATIVE_OBJ_DIR)/%,$(PYTHON_OBJ_DIR)/%,$(NATIVE_RELEASE_O0_OBJS)): override NATIVE_CFLAGS += -O0
 $(patsubst $(NATIVE_OBJ_DIR)/%,$(PYTHON_OBJ_DIR)/%,$(NATIVE_RELEASE_O1_OBJS)): override NATIVE_CFLAGS += -O1 $(RELEASE_ARCH_FLAGS)
 $(patsubst $(NATIVE_OBJ_DIR)/%,$(PYTHON_OBJ_DIR)/%,$(NATIVE_RELEASE_O2_OBJS)): override NATIVE_CFLAGS += -O2 $(RELEASE_ARCH_FLAGS)
 $(patsubst $(NATIVE_OBJ_DIR)/%,$(PYTHON_OBJ_DIR)/%,$(NATIVE_RELEASE_OPT_OBJS)): override NATIVE_CFLAGS += -O3 $(RELEASE_ARCH_FLAGS)
 $(PYTHON_OBJ_DIR)/gameplay/MSL/trigf.o: override NATIVE_CFLAGS += $(RELEASE_ARCH_FLAGS)
 endif
 
-NATIVE_FLAGS_SIGNATURE := $(NATIVE_CPPFLAGS)|$(NATIVE_BASE_CFLAGS)|$(NATIVE_LINK_FLAGS)|$(NATIVE_RELEASE_PROFILE)|$(NATIVE_SUBSYSTEM_PROFILE)|$(NATIVE_RELEASE_O0_OBJS)|$(NATIVE_RELEASE_O1_OBJS)|$(NATIVE_RELEASE_O2_OBJS)|$(NATIVE_RELEASE_OPT_OBJS)
+NATIVE_FLAGS_SIGNATURE := $(NATIVE_CPPFLAGS)|$(NATIVE_BASE_CFLAGS)|$(NATIVE_LINK_FLAGS)|$(NATIVE_RELEASE_PROFILE)|$(NATIVE_SUBSYSTEM_PROFILE)|$(NATIVE_RELEASE_O1_OBJS)|$(NATIVE_RELEASE_O2_OBJS)|$(NATIVE_RELEASE_OPT_OBJS)
 
-.PHONY: ppc-layout ppc-layout-check all bootstrap extract ppc native python-library native-release native-release-benchmark runtime-census large-batch-smoke benchmark-prepare benchmark-native subsystem-profile benchmark-9950x3d-vcache-256 benchmark-9950x3d-vcache-512 benchmark-9950x3d-frequency-256 benchmark-9950x3d-frequency-512 wasm wasm-smoke viewer-build viewer viewer-smoke viewer-production-smoke viewer-schema viewer-schema-check lifecycle-benchmark source-check validator validation-suite validation-supported-domain validation-release-supported-domain clean toolchain data-check ppc-smoke native-smoke test test-full format-check slpz-convert FORCE
+.PHONY: ppc-layout ppc-layout-check all bootstrap extract ppc native python-library native-release release-profile native-release-benchmark runtime-census large-batch-smoke benchmark-prepare benchmark-native subsystem-profile benchmark-9950x3d-vcache-256 benchmark-9950x3d-vcache-512 benchmark-9950x3d-frequency-256 benchmark-9950x3d-frequency-512 wasm wasm-smoke viewer-build viewer viewer-smoke viewer-production-smoke viewer-schema viewer-schema-check lifecycle-benchmark source-check validator validation-suite validation-supported-domain validation-release-supported-domain clean toolchain data-check ppc-smoke native-smoke test test-full format-check slpz-convert FORCE
 
 all: native python-library
 
@@ -452,14 +482,32 @@ strict-release-flags:
 	@case "$(NATIVE_RELEASE_CFLAGS) $(RELEASE_ARCH_FLAGS) $(NATIVE_LINK_FLAGS)" in \
 		*Ofast*|*fast-math*|*unsafe-math*|*finite-math*|*associative-math*|*reciprocal-math*|*fp-contract=fast*) \
 			echo "unsafe floating-point flag in strict release build" >&2; exit 2;; \
-		*flto*) \
-			echo "LTO is not validated for the source-shaped gameplay build" >&2; exit 2;; \
 	esac
+	@if [ "$(RELEASE_PGO)" = use ] && [ ! -d "$(RELEASE_PROFILE_COUNTS)" ]; then \
+		echo "RELEASE_PGO=use needs \`make release-profile\` first" >&2; exit 2; fi
 
 native-release: strict-release-flags
 	@$(MAKE) --no-print-directory -f "$(ROOT)/Makefile" native \
 		NATIVE_BUILD="$(NATIVE_RELEASE_BUILD)" \
 		NATIVE_CFLAGS="$(NATIVE_RELEASE_CFLAGS)" NATIVE_RELEASE_PROFILE=1
+
+# The counts are stored under the path of the object that produced them, so
+# each release build directory is pointed at the instrumented one's.
+release-profile: validator
+	@rm -rf "$(RELEASE_PROFILE_DIR)"
+	@$(MAKE) --no-print-directory -f "$(ROOT)/Makefile" native-release \
+		RELEASE_PGO=generate MSL_REPLAY_ARITHMETIC=1 \
+		NATIVE_RELEASE_BUILD="$(RELEASE_PROFILE_DIR)/build"
+	@MSL_DATA_DIR="$(abspath $(MSL_DATA_DIR))" \
+		MSL_CORE_NATIVE_BINARY="$(RELEASE_PROFILE_DIR)/build/melee-core-native" \
+		"$(PY)" -m tools.validation.validate_replay \
+		--suite "$(RELEASE_PROFILE_SUITE)" --backend native --timeout 120 \
+		--workers "$(VALIDATION_WORKERS)" --no-build | tail -n 1
+	@for build in "$(abspath $(NATIVE_RELEASE_BUILD))" "$(abspath $(BUILD_ROOT)/python-release)"; do \
+		mkdir -p "$(RELEASE_PROFILE_COUNTS)$$build" && \
+		ln -sfn "$(RELEASE_PROFILE_COUNTS)$(abspath $(RELEASE_PROFILE_DIR))/build/obj" \
+			"$(RELEASE_PROFILE_COUNTS)$$build/obj"; \
+	done
 
 # The replay benchmark is Linux/x86-specific; portable release validation only
 # needs the runtime binary above.
@@ -494,6 +542,13 @@ $(NATIVE_FLAGS_STAMP): FORCE
 	@cmp -s "$@.tmp" "$@" && rm "$@.tmp" || mv "$@.tmp" "$@"
 
 $(NATIVE_COMPILE_OBJS): $(NATIVE_FLAGS_STAMP)
+
+$(PYTHON_BUILD)/compile-flags.stamp: FORCE
+	@mkdir -p "$(@D)"
+	@printf '%s\n' '$(PYTHON_CPPFLAGS)|$(SHARED_LIB_LINK_FLAGS)|$(NATIVE_FLAGS_SIGNATURE)' > "$@.tmp"
+	@cmp -s "$@.tmp" "$@" && rm "$@.tmp" || mv "$@.tmp" "$@"
+
+$(PYTHON_CORE_OBJS): $(PYTHON_BUILD)/compile-flags.stamp
 
 $(PPC_BUILD)/replay-arithmetic.stamp $(PYTHON_BUILD)/replay-arithmetic.stamp $(WASM_BUILD)/replay-arithmetic.stamp: FORCE
 	@mkdir -p "$(@D)"
