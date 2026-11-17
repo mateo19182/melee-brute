@@ -452,7 +452,7 @@ endif
 
 NATIVE_FLAGS_SIGNATURE := $(NATIVE_CPPFLAGS)|$(NATIVE_BASE_CFLAGS)|$(NATIVE_LINK_FLAGS)|$(NATIVE_RELEASE_PROFILE)|$(NATIVE_SUBSYSTEM_PROFILE)|$(NATIVE_RELEASE_O1_OBJS)|$(NATIVE_RELEASE_O2_OBJS)|$(NATIVE_RELEASE_OPT_OBJS)
 
-.PHONY: ppc-layout ppc-layout-check all bootstrap extract ppc native python-library native-release release-profile native-release-benchmark runtime-census large-batch-smoke benchmark-prepare benchmark-native subsystem-profile benchmark-9950x3d-vcache-256 benchmark-9950x3d-vcache-512 benchmark-9950x3d-frequency-256 benchmark-9950x3d-frequency-512 wasm wasm-smoke viewer-build viewer viewer-smoke viewer-production-smoke viewer-schema viewer-schema-check lifecycle-benchmark source-check validator validation-suite validation-supported-domain validation-release-supported-domain clean toolchain data-check ppc-smoke native-smoke test test-full format-check slpz-convert FORCE
+.PHONY: ppc-layout ppc-layout-check all bootstrap extract ppc native python-library native-release release-profile native-release-benchmark runtime-census large-batch-smoke benchmark-prepare benchmark-native subsystem-profile benchmark-9950x3d-vcache-256 benchmark-9950x3d-vcache-512 benchmark-9950x3d-frequency-256 benchmark-9950x3d-frequency-512 wasm wasm-smoke viewer-build viewer viewer-smoke viewer-production-smoke viewer-schema viewer-schema-check lifecycle-benchmark source-check validator validation-suite validation-coverage validation-supported-domain validation-release-supported-domain clean toolchain data-check ppc-smoke native-smoke test test-full format-check slpz-convert FORCE
 
 all: native python-library
 
@@ -978,6 +978,23 @@ validation-suite:
 		--backend "$(VALIDATION_BACKEND)" --workers "$(VALIDATION_WORKERS)" \
 		--build-jobs "$(VALIDATION_BUILD_JOBS)" --frames "$(VALIDATION_FRAMES)" \
 		--timing $(VALIDATION_ARGS)
+
+# How much of the source the recordings execute: the gate vouches for nothing
+# else. Counters need the unoptimized build, so this runner is slow.
+VALIDATION_COVERAGE_BUILD := $(BUILD_ROOT)/coverage
+validation-coverage: validator
+	@$(MAKE) --no-print-directory -f "$(ROOT)/Makefile" native \
+		MSL_REPLAY_ARITHMETIC=1 NATIVE_BUILD="$(VALIDATION_COVERAGE_BUILD)" \
+		NATIVE_CFLAGS="$(NATIVE_CFLAGS) --coverage" \
+		NATIVE_LINK_FLAGS="$(NATIVE_LINK_FLAGS) --coverage"
+	@find "$(VALIDATION_COVERAGE_BUILD)" -name '*.gcda' -delete
+	@MSL_DATA_DIR="$(abspath $(MSL_DATA_DIR))" \
+		MSL_CORE_NATIVE_BINARY="$(VALIDATION_COVERAGE_BUILD)/melee-core-native" \
+		"$(PY)" -m tools.validation.validate_replay \
+		--suite "$(VALIDATION_SUITE)" --backend native --timeout 300 \
+		--workers "$(VALIDATION_WORKERS)" --no-build | tail -n 1
+	@"$(PY)" -m tools.validation.coverage_report "$(VALIDATION_COVERAGE_BUILD)/obj" \
+		--json "$(VALIDATION_COVERAGE_BUILD)/coverage.json"
 
 validation-supported-domain:
 	@$(MAKE) --no-print-directory -f "$(ROOT)/Makefile" validation-suite \
