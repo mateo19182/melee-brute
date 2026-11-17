@@ -767,6 +767,10 @@ static inline int ruled(const MslCoreBrute* brute,
                 zone->defender[view[1].action_id] && apart >= zone->gap_min &&
                 apart <= zone->gap_max && view[1].pos_x >= zone->x_min &&
                 view[1].pos_x <= zone->x_max &&
+                (!zone->attacker_frame_max ||
+                 view[0].action_frame <= zone->attacker_frame_max) &&
+                (!zone->defender_frame_max ||
+                 view[1].action_frame <= zone->defender_frame_max) &&
                 (!zone->same_y || view[0].pos_y == view[1].pos_y))
             {
                 return zone->attacker_wins != 0;

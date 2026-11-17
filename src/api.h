@@ -329,7 +329,8 @@ enum {
 // A set of positions whose result is known. It holds when both fighters are free to pick, the
 // attacker's action is in `attacker`, the defender's in `defender`, the defender's x minus the
 // attacker's (its size alone with either_side) is within gap_min..gap_max, the defender's x within
-// x_min..x_max and (same_y) they are at the same height. The position is then the attacker's (attacker_wins) or the defender's.
+// x_min..x_max, (same_y) they are at the same height, and each is no further into his action than
+// attacker_frame_max and defender_frame_max frames (0: any frame). The position is then the attacker's (attacker_wins) or the defender's.
 typedef struct MslBruteZone {
   uint8_t attacker_wins;
   uint8_t same_y;
@@ -339,6 +340,8 @@ typedef struct MslBruteZone {
   float gap_max;
   float x_min;
   float x_max;
+  uint16_t attacker_frame_max;
+  uint16_t defender_frame_max;
   uint8_t attacker[MSL_BRUTE_ACTIONS];
   uint8_t defender[MSL_BRUTE_ACTIONS];
 } MslBruteZone;

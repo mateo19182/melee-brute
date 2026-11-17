@@ -25,6 +25,7 @@ typedef struct MslCoreBruteView {
     float pos_y;
     float percent;
     uint16_t action_id;
+    uint16_t action_frame; // as the look-alike key counts it
     uint8_t stocks;
 } MslCoreBruteView;
 void msl_core_match_brute_view(const MslCoreMatch* match, int player,

@@ -563,6 +563,7 @@ void msl_core_match_brute_view(const MslCoreMatch* match, int player,
     out->pos_y = match->output_pos_y[player];
     out->percent = fp->dmg.x1830_percent;
     out->action_id = (uint16_t) fp->motion_id;
+    out->action_frame = (uint16_t) state_age_i16(fp->cur_anim_frame);
 }
 
 void msl_core_match_brute_look(const MslCoreMatch* match, int player,

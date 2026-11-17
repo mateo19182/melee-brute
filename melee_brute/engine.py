@@ -16,7 +16,8 @@ class Pad(ctypes.Structure):
 class ZoneData(ctypes.Structure):
     _fields_ = [("attacker_wins", ctypes.c_uint8), ("same_y", ctypes.c_uint8), ("either_side", ctypes.c_uint8),
                 ("_reserved", ctypes.c_uint8), ("gap_min", ctypes.c_float), ("gap_max", ctypes.c_float),
-                ("x_min", ctypes.c_float), ("x_max", ctypes.c_float), ("attacker", ctypes.c_uint8 * ACTIONS),
+                ("x_min", ctypes.c_float), ("x_max", ctypes.c_float), ("attacker_frame_max", ctypes.c_uint16),
+                ("defender_frame_max", ctypes.c_uint16), ("attacker", ctypes.c_uint8 * ACTIONS),
                 ("defender", ctypes.c_uint8 * ACTIONS)]
 
 

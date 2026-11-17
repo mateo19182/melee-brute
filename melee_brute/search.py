@@ -105,7 +105,8 @@ class Trap:
 class Zone:
     """A set of positions whose result is known, so a line that reaches one stops there: both fighters free to
     pick, their actions in `attacker` and `defender`, P2's x minus P1's within `gap` (with `either_side`, its
-    size alone), P2's x within `x`, and (`same_y`) at the same height. `winner` is "attacker" or "defender". Use it to chain searches: what one
+    size alone), P2's x within `x`, (`same_y`) at the same height, and each no further into his action than
+    `attacker_frame` and `defender_frame` frames (0: any; frames as `players()` gives `action_frame`). `winner` is "attacker" or "defender". Use it to chain searches: what one
     search proved about a set of positions is a zone of the next."""
     winner: str
     attacker: frozenset[int]
@@ -114,6 +115,8 @@ class Zone:
     x: tuple[float, float] = (-1e9, 1e9)
     same_y: bool = True
     either_side: bool = False
+    attacker_frame: int = 0
+    defender_frame: int = 0
 
 
 @dataclass(frozen=True)
@@ -175,6 +178,7 @@ class Rules:
         for z, zone in zip(d.zones, self.zones):
             z.attacker_wins, z.same_y, z.either_side = zone.winner == "attacker", zone.same_y, zone.either_side
             (z.gap_min, z.gap_max), (z.x_min, z.x_max) = zone.gap, zone.x
+            z.attacker_frame_max, z.defender_frame_max = zone.attacker_frame, zone.defender_frame
             for a in zone.attacker:
                 z.attacker[a] = 1
             for a in zone.defender:
