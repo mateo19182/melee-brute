@@ -4,6 +4,7 @@
 - [Host setup](ENVIRONMENT.md)
 - [Replay validation](VALIDATION.md)
 - [Benchmark reference](performance/BASELINE.md)
+- [Solver speed: what was done and what is next](performance/SOLVER.md)
 
 `validation/*.json` contains capture provenance and admission records used by
 the validation tooling. Historical worklogs remain in Git history.

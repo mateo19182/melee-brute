@@ -33,6 +33,10 @@ including source-backed item masks in `src/runtime/item_projection.h`.
 Validation supplies recorded RNG observations and available stage events.
 It does not establish an unseeded rollout or reproduce omitted render timing.
 
+`make validation-coverage` plays the selected suite through a runner with coverage
+counters and reports the share of each owner's lines the recordings execute. The gate
+vouches for nothing outside that share.
+
 ## Capture admission
 
 [The admission ledger](validation/replay_admission.json) records exclusion
