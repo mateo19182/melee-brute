@@ -62,6 +62,21 @@ Do not retry these without a new idea.
 - **Searching every answer on the spot, with no pre-scan.** Fewer positions on most problems and a
   40-fold blow-up at point-blank range, where an answer that hits at once waits behind a search.
 - **Killer moves, history without cost.** Within 10% of menu order, or far worse.
+- **Merging exact states that differ only in input history.** Tried as an experiment on 52 corpus
+  cases by leaving bytes out of the state hash, which is unsound and was not kept. Exact searched
+  322,504 positions and look-alike 80,372. Leaving out all input history (pad copies, UCF buffers,
+  each fighter's stick, button and timer block, two per-player bytes) gave 104,057: input history
+  is nearly the whole difference between the two tables. But it only pays when all of it goes.
+  Leaving out the timers alone gave 262,689, the sticks, buttons and pad copies alone 269,435.
+  The last inputs are live state (they decide press against hold next frame), so a sound version
+  could at most canonicalize the timers: under 19% fewer positions, for a proof about every reader
+  of 28 timer bytes.
+- **Copying fewer pages on a rollback.** A Fox match writes 34 pages a frame on average and 67 over
+  3,000 frames; a rollback copies the 54 or so a search has touched. 31 pages are written on nearly
+  every frame, several of them for one to four bytes (frame counter, random seed, output
+  positions). About 30 are written on fewer than one frame in ten. Copying only what a frame wrote
+  would save at most 1.7 µs of an 18 µs position, and finding that out costs a fault per page.
+  Moving the small hot fields onto one page would save about five pages, 0.4 µs.
 - **`-march=native` on every file.** Passes the gate and is slower than tuning the listed owners.
 - **`-O3` over `-O2` as the default level.** No measurable difference.
 
@@ -124,20 +139,21 @@ What is left of this step:
    each copied special, Peach's pulls until the rare ones come, every throw on every weight,
    shield breaks, ledge and wall options, deaths off each blast zone. Keep them by coverage as now.
 
-### 2. Speed, in order of expected return
+### 2. Speed
 
-1. **Fewer positions in exact mode.** The only place with factors of ten left. States that differ
-   only in input history could share an answer when that history can no longer matter: the timers
-   are past every threshold the game compares them with, and the held inputs are equal. That needs
-   each field's readers found in the source, and item 5 above to catch a wrong merge.
-2. **Rollback copy, a quarter of a position.** Find which fields put each of the 54 pages in the
-   written set and whether the hot ones can share pages. The match struct alone spans sixteen
-   pages (pad state, camera, output positions); how many of them are written is not yet measured.
-3. **The frame.** Train the profile on solver positions as well as recordings; then look at whether
-   pose work for bones no hitbox, hurtbox or collision point depends on can be skipped in a search.
-   The second needs the differential gate first.
-4. **Process scheduling.** Helpers recover idle time but repeat some work. Splitting a large job
+The measurements above close the two ideas that looked largest: sound merging of exact states is
+worth under 19%, and the rollback copy under 10%. With the frame at 6.5 to 8 µs after link-time and
+profile-guided builds, a searched position is near its floor for this formulation. What is left:
+
+1. **The frame in a search.** Train the profile on solver positions as well as recordings. Then
+   see whether pose work for bones no hitbox, hurtbox or collision point depends on can be skipped;
+   the differential gate can now check that.
+2. **Process scheduling.** Helpers recover idle time but repeat some work. Splitting a large job
    into its children, which the shared table already makes cheap, would scale better past 16
-   processes.
-5. **A quiet baseline.** Every number here was taken beside other load. One run of the suite and of
-   a 14-frame solve on an idle machine, recorded here, would make later changes comparable.
+   processes. On a busy machine a position cost 29.5 µs on one process and 57 µs on 28.
+3. **The question, not the engine.** The remaining factors of ten are in what is asked: fewer or
+   longer moves in the menus, zones of known result that end lines early, and the look-alike table
+   for exploring before an exact run confirms. The two tables agree on all 360 corpus positions.
+4. **A quiet baseline.** Every number here was taken beside other load. One run of
+   `python -m melee_brute corpus` and of a 14-frame solve on an idle machine, recorded here, would
+   make later changes comparable.
