@@ -77,8 +77,12 @@ python -m tools.validation.validate_replay --suite replays/suites/melee_core_agg
 - 524 recordings, 4.84M frames, about 30 s on 12 workers. `MSL_CORE_NATIVE_BINARY=` points it at
   another runner; `make validation-release-supported-domain` builds and checks the release one.
 - `make validation-coverage` reports which source lines those recordings execute.
-- Solver changes: `pytest tests/test_brute.py`, then the position counts and answers of a fixed set
-  of positions before and after.
+- `make validation-differential` checks the release library against the `-O0` one on generated
+  tapes, and the search's take-back on the same tapes.
+- Solver changes: `pytest tests/test_brute.py`, then `python -m melee_brute corpus`. It solves 360
+  recorded positions again with both tables, fails on any changed answer, and prints the positions
+  searched against the recorded 2,499,012 (exact) and 553,128 (look-alike). About 20 s on 14
+  processes. The two tables agree on all 360.
 
 ## What the gates cover
 
@@ -110,7 +114,8 @@ Measured 2026-11-17. `make validation-coverage` counts the lines the 524 recordi
 
 ### 1. Closing the coverage gap
 
-The differential gate and the roster-wide take-back check exist. What is left of this step:
+The differential gate, the roster-wide take-back check and the corpus of solved positions exist.
+What is left of this step:
 
 1. **A list of unreachable owners**, so the report states coverage of reachable code and the target
    can be 95% of it.
@@ -118,8 +123,6 @@ The differential gate and the roster-wide take-back check exist. What is left of
    held, cancelled, in the air, into a wall, out of a grab), Kirby's swallow of each fighter and
    each copied special, Peach's pulls until the rare ones come, every throw on every weight,
    shield breaks, ledge and wall options, deaths off each blast zone. Keep them by coverage as now.
-3. **A corpus of solved positions.** Answers and position counts for a few hundred positions, exact
-   and look-alike, as the regression set for every search change below.
 
 ### 2. Speed, in order of expected return
 

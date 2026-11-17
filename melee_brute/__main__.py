@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 import time
 
-from melee_brute import Forced, Match, fox, pad, solve
+from melee_brute import Forced, Match, corpus, fox, pad, solve
 from melee_brute.match import B
 
 
@@ -75,6 +77,11 @@ def main() -> None:
     f.add_argument("--table-mb", type=int, default=2048, help="memory for decided positions, shared by all processes")
     f.add_argument("--out", help="file that collects finished jobs; a rerun with it continues where it stopped")
     f.set_defaults(fn=run_fox)
+    c = sub.add_parser("corpus", help="solve the fixed set of positions again and compare with the recorded answers")
+    c.add_argument("--write", action="store_true", help="record the answers and position counts")
+    c.add_argument("--every", type=int, default=1, help="only every Nth case")
+    c.add_argument("--workers", type=int, default=min(16, os.cpu_count() or 1))
+    c.set_defaults(fn=lambda args: sys.exit(corpus.run(args)))
     args = ap.parse_args()
     args.fn(args)
 

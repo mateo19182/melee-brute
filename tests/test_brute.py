@@ -275,3 +275,15 @@ def test_a_zone_can_stop_at_an_action_frame():
         seen.append(f.ruled(5))
     m.rollback(0)
     assert seen == [True, True, True, None, None]
+
+
+def test_a_sample_of_the_solved_positions_still_has_its_answers():
+    """`python -m melee_brute corpus` checks all 360; this is every ninth of the short ones."""
+    import json
+    from melee_brute import corpus
+    known = {corpus.name(row): row for row in json.loads(corpus.SOLVED.read_text())["cases"]}
+    assert len(known) == len(corpus.cases()) == 360
+    sample = [case for case in corpus.cases() if case["frames"] <= 6][::9]
+    for case in sample:
+        solved = corpus.solve_case((case, None))
+        assert solved["exact"] == solved["look"] == known[corpus.name(case)]["exact"], corpus.name(case)
