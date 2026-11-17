@@ -192,9 +192,30 @@ The measurements above close the two ideas that looked largest: sound merging of
 worth under 19%, and the rollback copy under 10%. With the frame at 6.5 to 8 µs after link-time and
 profile-guided builds, a searched position is near its floor for this formulation. What is left:
 
-1. **The frame in a search.** Train the profile on solver positions as well as recordings. Then
-   see whether pose work for bones no hitbox, hurtbox or collision point depends on can be skipped;
-   the differential gate can now check that.
+1. **The frame in a search.** Profiled 2026-11-17 inside a search (Fox against Fox, Final
+   Destination) with the simulator's subsystem profiler built into the Python library
+   (`-DMSL_SUBSYSTEM_PROFILE`, and `msl_subsystem_profile_reset` / `_report` exported). A frame is
+   about 40,000 cycles, roughly 60% of a position:
+
+   | Part of the frame | Share |
+   | --- | --- |
+   | Tail physics solver (`lb_8001044C`, once a Fox) | 20% |
+   | Fighter animation and pose | about 17% |
+   | Stage collision | 16% |
+   | Input and action logic | about 10% |
+   | Stage objects | 7% |
+   | Camera | about 7% |
+
+   Skipping pose work that no gameplay reads has nothing left to take: upstream already leaves
+   out presentation-only bones, the cloth, hair and cape solvers, and stage animation without a
+   gameplay reader, each with a source audit. Fox's tail stays because it carries a hurtbox. What
+   is left, in the order to try:
+   - Train the compiler profile on solver positions as well as recordings, and make it the
+     default if it holds. Mechanical; a guess of a few percent on the 17% it gives now.
+   - Make the tail solver cheaper while keeping its bits. About 10% of a position at stake, and
+     upstream has already tuned it by hand, so expect a few percent for careful work.
+   - Not recommended: a search mode with the tail frozen. About 10% a position, but a hit that
+     lands only on the tail would be missed, so answers stop being exact.
 2. **Process scheduling.** Done 2026-11-17, in two parts.
    - One process a core. On a 13-frame solve (16 cores, 32 threads): 8 processes 28.3 s at
      19.5 µs a position, 16 processes 18.6 s at 23.8 µs, 30 processes 25.5 s at 42 µs. The second
