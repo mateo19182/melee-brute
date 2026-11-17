@@ -37,6 +37,31 @@ It does not establish an unseeded rollout or reproduce omitted render timing.
 counters and reports the share of each owner's lines the recordings execute. The gate
 vouches for nothing outside that share.
 
+## The differential gate
+
+A recording checks the simulator against the game. A build change only has to be checked against
+the simulator: the `-O0` library is the reference, and any input must come out the same on the
+release library. `make validation-differential` does that on generated tapes, with no recording:
+
+- `replays/suites/generated_tapes.json` lists recipes: a stage, two to four fighters, start
+  percents, teams and a seed. `tools/validation/tapes.py` plays a recipe with seeded controllers
+  that walk at each other, attack, grab, shield, use every special and recover. The inputs they
+  produce on the reference library are the tape.
+- `differential check` replays each tape on the candidate and compares the whole observation of
+  every frame: every fighter and follower, the items, the stage and the random seed. A mismatch
+  names the first frame and the fields. A release library built without `RELEASE_MATH_FLAGS` fails
+  every tape.
+- `differential takeback` then checks the search's take-back on the same tapes: checkpoint, play
+  ahead, roll back, and the savestate and state hash must be the ones before; played again, the
+  frames and the final hash must match.
+- `differential select` rebuilds the corpus. It plays some 1,800 candidate recipes on
+  `make python-coverage`, which marks basic blocks, and keeps greedily those that reach at least
+  20 blocks the kept ones do not. `make validation-tape-coverage` reports the lines the corpus
+  runs, added to the recordings' when `make validation-coverage` has run.
+
+The tapes say nothing about whether the simulator matches the game; only recordings do. Savestates
+hold addresses, so two builds are compared by observations, not by savestate bytes.
+
 ## Capture admission
 
 [The admission ledger](validation/replay_admission.json) records exclusion

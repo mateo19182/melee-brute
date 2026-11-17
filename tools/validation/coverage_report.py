@@ -13,12 +13,12 @@ import subprocess
 from pathlib import Path
 
 
-def collect(root: Path, objects: Path) -> dict[str, dict]:
-    """Per source file under src/: line -> count and function -> count, summed over every object."""
-    files: dict[str, dict] = {}
-    for counts in sorted(objects.rglob("*.gcda")):
+def collect(root: Path, objects: list[Path], files: dict[str, dict] | None = None) -> dict[str, dict]:
+    """Per source file under src/: line -> count and function -> count, the most over every object."""
+    files = {} if files is None else files
+    for counts in sorted(c for directory in objects for c in directory.rglob("*.gcda")):
         out = subprocess.run(["gcov", "--json-format", "--stdout", counts.name], capture_output=True,
-                             cwd=counts.parent, check=True).stdout
+                             cwd=counts.parent).stdout
         for line in out.splitlines():
             for record in json.loads(line).get("files", []):
                 path = (root / record["file"]).resolve()
@@ -51,11 +51,11 @@ def owner(name: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("objects", type=Path, help="object directory of the coverage build")
+    ap.add_argument("objects", type=Path, nargs="+", help="object directories of coverage builds, added together")
     ap.add_argument("--json", type=Path, help="write the per-file summary, with the functions never called")
     args = ap.parse_args()
     root = Path(__file__).resolve().parents[2]
-    files = summary(collect(root, args.objects.resolve()))
+    files = summary(collect(root, [d.resolve() for d in args.objects]))
     if args.json:
         args.json.write_text(json.dumps(files, indent=1) + "\n")
     owners: dict[str, list[int]] = collections.defaultdict(lambda: [0, 0, 0, 0])
