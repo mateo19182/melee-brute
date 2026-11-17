@@ -127,7 +127,7 @@ On a Ryzen 9 5950X (16 cores) that was busy with other work (load 15 to 35), so 
 - A line that is settled when its joint move ends (someone was hit, the frames ran out, the trap closed) is never played twice.
 - With more than three frames left, all answers to a move are played once before any is searched, so that an answer that hits at once is found for a few positions. Nearer the end, each answer is played and searched on the spot.
 - Answers are tried in falling order of how often they have refuted per position they cost, counted separately against each move.
-- `solve` forks its processes from one that holds the root. They share the game data and the table, so a position decided by one is known to all. A process with no job left helps the unfinished job with the fewest helpers: it searches the same position starting from other moves, and the two meet through the table.
+- `solve` forks its processes from one that holds the root. They share the game data and the table, so a position decided by one is known to all. There is one job per root joint move, and a process with no job left joins the unfinished job with the fewest processes on it. Processes on the same search split it between them at every depth, the way parallel chess programs do (ABDADA, young brothers wait): each notes the line it is on in a small shared list; the first answer to a move is searched by all, since it is the likeliest to refute it, and of the others a process takes one nobody is on. A refuted move is kept in the table, and a process deep under a position or a move that another has since settled gives its search up.
 
 ## What changed in the simulator
 

@@ -54,11 +54,11 @@ def library() -> ctypes.CDLL:
             ("create", [p, u32, u32, ctypes.POINTER(p)]), ("reset", [p]), ("checkpoint", [p, u32]),
             ("rollback", [p, u32]), ("hash", [p, ctypes.POINTER(ctypes.c_uint64 * 2)]), ("step", [p, p]),
             ("begin", [p, ctypes.POINTER(RulesData), p, ctypes.c_size_t, ctypes.c_int]),
-            ("play", [p, i32, i32, ctypes.POINTER(Play)]),
+            ("share", [p, p, ctypes.c_size_t]), ("play", [p, i32, i32, ctypes.POINTER(Play)]),
             ("options", [p, i32, i32, ctypes.POINTER(i32 * MAX_MENU_MOVES), ctypes.POINTER(u32),
                          ctypes.POINTER(i32 * MAX_MENU_MOVES), ctypes.POINTER(u32)]),
             ("trapped", [p, ctypes.POINTER(i32)]), ("ruled", [p, i32, i32, i32, ctypes.POINTER(i32)]),
-            ("search", [p, i32, i32, i32, u32, ctypes.c_int, u32, ctypes.POINTER(i32)]),
+            ("search", [p, i32, i32, i32, u32, ctypes.c_int, ctypes.POINTER(i32)]),
             ("stats", [p, ctypes.POINTER(Stats)])):
         fn = getattr(lib, "msl_brute_" + name)
         fn.argtypes, fn.restype = args, ctypes.c_int

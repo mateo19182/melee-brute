@@ -32,7 +32,7 @@ enum {
     BRUTE_TABLE_WAYS = 4,
     BRUTE_NO_WIN = 0xFFF,
     BRUTE_SCAN_FRAMES = 3,
-    BRUTE_SPREAD_LEVELS = 6,
+    BRUTE_BUSY_WAYS = 4,
 };
 
 typedef struct BruteSpan {
@@ -52,6 +52,13 @@ typedef struct BruteEntry {
     uint64_t lock; // key ^ data: a torn or foreign entry fails the check
     uint64_t data; // win:12 | safe:12 | cost:6 | check:32
 } BruteEntry;
+
+// A position on the way down that is shared with other processes.
+typedef struct BrutePath {
+    uint64_t key[2];
+    uint64_t move[2]; // the move in hand there, as a table key
+    int frames;       // 0: not shared
+} BrutePath;
 
 typedef struct BruteRecord {
     uint32_t tries;
@@ -86,11 +93,15 @@ struct MslCoreBrute {
     BruteEntry* table;
     uint64_t table_mask; // of buckets
     int exact;
-    // A helper searches the same position as another process. Above
-    // `spread_level` it starts each list of moves `spread` places further on,
-    // so the two meet through the table instead of repeating each other.
-    uint32_t spread;
-    uint32_t spread_level;
+    // Lines being searched right now, by any process that shares the table
+    // (ABDADA): one that finds a line taken looks at the others first.
+    uint64_t* busy;
+    uint64_t busy_mask; // of buckets
+    const volatile uint64_t* stop; // nonzero: every search gives up
+    BrutePath* path;     // by level
+    uint32_t root_level; // of the search under way
+    uint32_t cut;        // the level a pointless search is giving up to
+    int cut_value;       // the answer found there, or -1: its move is refuted
     int failed;
     MslBruteStats stats;
     // Move ordering, by question asked: how often a move held, how often an
@@ -317,10 +328,12 @@ MslCoreResult msl_core_brute_create(MslCoreBatch* batch, uint32_t match_index,
     brute->original_hash =
         calloc(brute->unit_count, sizeof(*brute->original_hash));
     brute->level_dirty = malloc(level_count * sizeof(*brute->level_dirty));
+    brute->path = calloc(level_count, sizeof(*brute->path));
     brute->original = map_lazy((size_t) brute->unit_count * BRUTE_PAGE);
     brute->levels = map_lazy(brute->level_stride * level_count);
     if (brute->written == NULL || brute->dirty == NULL ||
         brute->original_hash == NULL || brute->level_dirty == NULL ||
+        brute->path == NULL ||
         brute->original == NULL || brute->levels == NULL)
     {
         msl_core_brute_destroy(brute);
@@ -369,6 +382,7 @@ void msl_core_brute_destroy(MslCoreBrute* brute)
     free(brute->dirty);
     free(brute->original_hash);
     free(brute->level_dirty);
+    free(brute->path);
     free(brute);
 }
 
@@ -801,22 +815,6 @@ static inline int settle(const MslCoreBrute* brute, const MslBrutePlay* kid,
     return whose < 0 ? -1 : whose == attacking;
 }
 
-static inline void spread_moves(const MslCoreBrute* brute, uint32_t level,
-                                uint8_t order[], uint32_t count)
-{
-    uint8_t turned[MSL_BRUTE_MAX_MENU_MOVES];
-    uint32_t shift;
-    uint32_t i;
-    if (brute->spread == 0 || level >= brute->spread_level || count < 2) {
-        return;
-    }
-    shift = (brute->spread * (count / 2 + level % 2)) % count;
-    for (i = 0; i < count; ++i) {
-        turned[i] = order[(i + shift) % count];
-    }
-    memcpy(order, turned, count);
-}
-
 // The chance a try succeeds per position it costs: trying in falling order of
 // this finds a success for the least expected work. An untried move counts as
 // an even chance at the cost of one position, so it is tried early.
@@ -857,16 +855,128 @@ static inline void order_moves(const int32_t moves[], uint32_t count,
     }
 }
 
+// 1 or 0 when the table already answers for `key` with `frames` left, else -1.
+static inline int decided(const MslCoreBrute* brute, const uint64_t key[2],
+                          int frames, int attacking)
+{
+    uint32_t win;
+    uint32_t safe;
+    if (table_find(brute, key, &win, &safe)) {
+        if ((uint32_t) frames >= win) {
+            return attacking;
+        }
+        if ((uint32_t) frames <= safe) {
+            return !attacking;
+        }
+    }
+    return -1;
+}
+
+// The busy lines are a hint between processes: a lost or stale mark costs
+// repeated work, never a wrong answer, so they are read and written unlocked.
+static inline uint64_t busy_line(const uint64_t key[2], int32_t x, int32_t y)
+{
+    uint64_t line = key[0] ^ mix64((uint64_t) (uint32_t) x << 32 | (uint32_t) y,
+                                   0x8CB92BA72F3D8DD7ULL);
+    return line != 0 ? line : 1;
+}
+
+static inline int busy_find(const MslCoreBrute* brute, uint64_t line)
+{
+    const uint64_t* bucket =
+        brute->busy + (line & brute->busy_mask) * BRUTE_BUSY_WAYS;
+    int way;
+    for (way = 0; way < BRUTE_BUSY_WAYS; ++way) {
+        if (bucket[way] == line) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static inline void busy_set(const MslCoreBrute* brute, uint64_t line,
+                            uint64_t from, uint64_t to)
+{
+    uint64_t* bucket =
+        brute->busy + (line & brute->busy_mask) * BRUTE_BUSY_WAYS;
+    int way;
+    for (way = 0; way < BRUTE_BUSY_WAYS; ++way) {
+        if (bucket[way] == from) {
+            bucket[way] = to;
+            return;
+        }
+    }
+}
+
+static int search(MslCoreBrute* brute, int frames, int32_t attacker,
+                  int32_t defender, uint32_t level, int attacking);
+
+// After an answer at a shared position: has another process settled things
+// meanwhile? Returns what to return at once, or -1 to go on, with `*refuted`
+// set when the move in hand is refuted (by this answer or by another process).
+static inline int overtaken(MslCoreBrute* brute, const BrutePath* path,
+                            uint32_t level, int attacking, int* refuted)
+{
+    int known;
+    if (brute->failed || brute->cut < level) {
+        return 0;
+    }
+    if (brute->cut == level) {
+        brute->cut = BRUTE_LEVEL_UNSET;
+        if (brute->cut_value >= 0) {
+            return brute->cut_value;
+        }
+        *refuted = 1;
+        return -1;
+    }
+    known = decided(brute, path->key, path->frames, attacking);
+    if (known >= 0) {
+        return known;
+    }
+    if (decided(brute, path->move, path->frames, attacking) >= 0) {
+        *refuted = 1;
+    }
+    return -1;
+}
+
+// Does the picker's move `x` hold against the answer `y`? `value` is what
+// `settle` said of the line, or -2 when it has not been asked.
+static int answer(MslCoreBrute* brute, int frames, int32_t x, int32_t y,
+                  uint32_t level, int attacking, int value)
+{
+    BruteRecord* against = brute->countered[attacking][MOVE_ID(x)];
+    uint64_t started = brute->stats.positions;
+    MslCoreBruteView after[2];
+    MslBrutePlay kid;
+    play(brute, attacking ? x : y, attacking ? y : x, &kid, after);
+    if (value == -2) {
+        value = settle(brute, &kid, after, frames, attacking);
+    }
+    if (value < 0) {
+        value = search(brute, frames - kid.frames, kid.attacker, kid.defender,
+                       level + 1, attacking);
+    }
+    rollback(brute, level);
+    if (brute->cut <= level) {
+        return 0; // given up: not an answer
+    }
+    record_add(&against[MOVE_ID(y)], !value, brute->stats.positions - started);
+    record_add(&brute->refuted[attacking][MOVE_ID(y)], !value,
+               brute->stats.positions - started);
+    return value;
+}
+
 static int search(MslCoreBrute* brute, int frames, int32_t attacker,
                   int32_t defender, uint32_t level, int attacking)
 {
     MslCoreBruteView view[2];
     int32_t attackers[MSL_BRUTE_MAX_MENU_MOVES];
     int32_t defenders[MSL_BRUTE_MAX_MENU_MOVES];
-    MslBrutePlay kids[MSL_BRUTE_MAX_MENU_MOVES];
     int8_t settled[MSL_BRUTE_MAX_MENU_MOVES];
     uint8_t mine_order[MSL_BRUTE_MAX_MENU_MOVES];
     uint8_t theirs_order[MSL_BRUTE_MAX_MENU_MOVES];
+    int sharing = brute->busy != NULL && frames > BRUTE_SCAN_FRAMES;
+    BrutePath* path = &brute->path[level < brute->level_count ? level : 0];
     const int32_t* mine;
     const int32_t* theirs;
     uint32_t attacker_count;
@@ -887,12 +997,15 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
         brute->failed = 1;
         return 0;
     }
+    if (brute->stop != NULL && *brute->stop != 0) {
+        brute->failed = 1;
+        return 0;
+    }
     brute->stats.nodes += 1;
     if (brute->table != NULL) {
         uint64_t moves = ((uint64_t) (uint32_t) attacker << 32 |
                           (uint32_t) defender) ^ brute->salt;
-        uint32_t win;
-        uint32_t safe;
+        int known;
         if (brute->exact) {
             state_hash(brute, key);
         } else {
@@ -910,16 +1023,36 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
         key[0] ^= mix64(moves + (uint64_t) attacking, 0x9E3779B97F4A7C15ULL);
         key[1] ^= mix64(moves ^ 0xD1B54A32D192ED03ULL,
                         0xC2B2AE3D27D4EB4FULL + (uint64_t) attacking);
-        if (table_find(brute, key, &win, &safe)) {
-            if ((uint32_t) frames >= win) {
-                brute->stats.table_hits += 1;
-                return attacking;
+        known = decided(brute, key, frames, attacking);
+        if (known >= 0) {
+            brute->stats.table_hits += 1;
+            return known;
+        }
+    }
+    path->frames = sharing ? frames : 0;
+    if (sharing) {
+        int known;
+        // A position further up that another process has decided, or a move
+        // there it has refuted, makes this search pointless: give up to there.
+        uint32_t l;
+        for (l = brute->root_level; l < level; ++l) {
+            const BrutePath* up = &brute->path[l];
+            if (up->frames == 0) {
+                continue;
             }
-            if ((uint32_t) frames <= safe) {
-                brute->stats.table_hits += 1;
-                return !attacking;
+            known = decided(brute, up->key, up->frames, attacking);
+            if (known >= 0 ||
+                decided(brute, up->move, up->frames, attacking) >= 0)
+            {
+                brute->cut = l;
+                brute->cut_value = known;
+                return 0;
             }
         }
+        path->key[0] = key[0];
+        path->key[1] = key[1];
+        path->move[0] = 0;
+        path->move[1] = 0;
     }
     options(brute, view, attacker, defender, attackers, &attacker_count,
             defenders, &defender_count);
@@ -935,17 +1068,27 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
         theirs_count = attacker_count;
     }
     order_moves(mine, mine_count, NULL, brute->held[attacking], mine_order);
-    spread_moves(brute, level, mine_order, mine_count);
     checkpoint(brute, level);
     for (i = 0; i < mine_count; ++i) {
         int32_t x = mine[mine_order[i]];
         BruteRecord* against = brute->countered[attacking][MOVE_ID(x)];
         uint64_t move_started = brute->stats.positions;
+        uint32_t later; // answers, by place in `theirs`, another process was on
         uint32_t j;
         int refuted = 0;
+        int eldest = 1;
+        int known;
+        if (sharing) {
+            // The move as a question of its own: refuted, it is kept in the
+            // table, where the processes searching its other answers find out.
+            path->move[0] = key[0] ^ mix64((uint32_t) x, 0x8CB92BA72F3D8DD7ULL);
+            path->move[1] = key[1] ^ mix64((uint32_t) x, 0xA0761D6478BD642FULL);
+            if (decided(brute, path->move, frames, attacking) >= 0) {
+                continue;
+            }
+        }
         order_moves(theirs, theirs_count, against, brute->refuted[attacking],
                     theirs_order);
-        spread_moves(brute, level, theirs_order, theirs_count);
         // Every answer is looked at first: one that settles the line at once
         // for the other side refutes the move, and the lines that are settled
         // either way need no second look.
@@ -962,9 +1105,9 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
         {
             int32_t y = theirs[theirs_order[j]];
             MslCoreBruteView after[2];
-            play(brute, attacking ? x : y, attacking ? y : x, &kids[j], after);
-            settled[j] = (int8_t) settle(brute, &kids[j], after, frames,
-                                         attacking);
+            MslBrutePlay kid;
+            play(brute, attacking ? x : y, attacking ? y : x, &kid, after);
+            settled[j] = (int8_t) settle(brute, &kid, after, frames, attacking);
             rollback(brute, level);
             if (settled[j] == 0) {
                 refuted = 1;
@@ -972,29 +1115,51 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
                 record_add(&brute->refuted[attacking][MOVE_ID(y)], 1, 1);
             }
         }
+        later = 0;
         for (j = 0; j < theirs_count && !refuted && !brute->failed; ++j) {
             int32_t y = theirs[theirs_order[j]];
-            uint64_t answer_started = brute->stats.positions;
-            MslCoreBruteView after[2];
-            int value = settled[j];
-            if (value >= 0) {
+            uint64_t line;
+            if (settled[j] >= 0) {
                 continue;
             }
-            play(brute, attacking ? x : y, attacking ? y : x, &kids[j], after);
-            if (value == -2) {
-                value = settle(brute, &kids[j], after, frames, attacking);
+            if (!sharing) {
+                refuted = !answer(brute, frames, x, y, level, attacking,
+                                  settled[j]);
+                if (brute->cut < level) {
+                    return 0;
+                }
+                continue;
             }
-            if (value < 0) {
-                value = search(brute, frames - kids[j].frames,
-                               kids[j].attacker, kids[j].defender, level + 1,
-                               attacking);
+            // A move holds only against every answer, so its answers are work
+            // to share out: one that another process is on is left for later.
+            // The first is searched whoever else is on it, since it is the
+            // likeliest to refute the move.
+            line = busy_line(key, x, y);
+            if (!eldest && busy_find(brute, line)) {
+                later |= 1u << theirs_order[j];
+                continue;
             }
-            rollback(brute, level);
-            refuted = !value;
-            record_add(&against[MOVE_ID(y)], refuted,
-                       brute->stats.positions - answer_started);
-            record_add(&brute->refuted[attacking][MOVE_ID(y)], refuted,
-                       brute->stats.positions - answer_started);
+            eldest = 0;
+            busy_set(brute, line, 0, line);
+            refuted = !answer(brute, frames, x, y, level, attacking,
+                              settled[j]);
+            busy_set(brute, line, line, 0);
+            known = overtaken(brute, path, level, attacking, &refuted);
+            if (known >= 0) {
+                return known;
+            }
+        }
+        // What was left to others: most of it is in the table by now, and the
+        // rest is shared out again further down.
+        for (j = 0; j < theirs_count && !refuted && !brute->failed; ++j) {
+            if (!(later >> j & 1u)) {
+                continue;
+            }
+            refuted = !answer(brute, frames, x, theirs[j], level, attacking, -1);
+            known = overtaken(brute, path, level, attacking, &refuted);
+            if (known >= 0) {
+                return known;
+            }
         }
         if (brute->failed) {
             return 0;
@@ -1007,6 +1172,10 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
                             brute->stats.positions - started);
             }
             return 1;
+        }
+        if (sharing) {
+            table_store(brute, path->move, frames, !attacking,
+                        brute->stats.positions - move_started);
         }
     }
     if (brute->table != NULL) {
@@ -1074,6 +1243,10 @@ MslCoreResult msl_core_brute_begin(MslCoreBrute* brute,
     brute->exact = exact != 0;
     brute->table = NULL;
     brute->table_mask = 0;
+    brute->busy = NULL;
+    brute->busy_mask = 0;
+    brute->stop = NULL;
+    brute->cut = BRUTE_LEVEL_UNSET;
     if (table != NULL) {
         uint64_t buckets = 1;
         size_t bucket_bytes = sizeof(BruteEntry) * BRUTE_TABLE_WAYS;
@@ -1091,6 +1264,26 @@ MslCoreResult msl_core_brute_begin(MslCoreBrute* brute,
     memset(brute->held, 0, sizeof(brute->held));
     memset(brute->refuted, 0, sizeof(brute->refuted));
     memset(brute->countered, 0, sizeof(brute->countered));
+    return MSL_CORE_OK;
+}
+
+MslCoreResult msl_core_brute_share(MslCoreBrute* brute, void* busy,
+                                   size_t busy_bytes)
+{
+    uint64_t buckets = 1;
+    size_t bucket_bytes = sizeof(uint64_t) * BRUTE_BUSY_WAYS;
+    if (brute == NULL || !brute->has_rules || brute->table == NULL ||
+        busy == NULL || busy_bytes < sizeof(uint64_t) + bucket_bytes ||
+        ((uintptr_t) busy & 7u) != 0)
+    {
+        return MSL_CORE_INVALID_ARGUMENT;
+    }
+    while (buckets * 2 * bucket_bytes <= busy_bytes - sizeof(uint64_t)) {
+        buckets *= 2;
+    }
+    brute->stop = busy;
+    brute->busy = (uint64_t*) busy + 1;
+    brute->busy_mask = buckets - 1;
     return MSL_CORE_OK;
 }
 
@@ -1154,7 +1347,7 @@ MslCoreResult msl_core_brute_ruled(MslCoreBrute* brute, int32_t frames,
 MslCoreResult msl_core_brute_search(MslCoreBrute* brute, int32_t frames,
                                     int32_t attacker, int32_t defender,
                                     uint32_t level, int attacking,
-                                    uint32_t spread, int32_t* out_holds)
+                                    int32_t* out_holds)
 {
     if (brute == NULL || out_holds == NULL || !brute->has_rules ||
         (attacker >= 0 && !valid_move(brute, attacker)) ||
@@ -1162,8 +1355,8 @@ MslCoreResult msl_core_brute_search(MslCoreBrute* brute, int32_t frames,
     {
         return MSL_CORE_INVALID_ARGUMENT;
     }
-    brute->spread = spread;
-    brute->spread_level = level + BRUTE_SPREAD_LEVELS;
+    brute->root_level = level;
+    brute->cut = BRUTE_LEVEL_UNSET;
     *out_holds = search(brute, frames, attacker, defender, level,
                         attacking != 0);
     return brute->failed ? MSL_CORE_INVALID_STATE : MSL_CORE_OK;
@@ -1244,6 +1437,15 @@ MslCoreResult msl_core_brute_begin(MslCoreBrute* brute,
     return MSL_CORE_INVALID_STATE;
 }
 
+MslCoreResult msl_core_brute_share(MslCoreBrute* brute, void* busy,
+                                   size_t busy_bytes)
+{
+    (void) brute;
+    (void) busy;
+    (void) busy_bytes;
+    return MSL_CORE_INVALID_STATE;
+}
+
 MslCoreResult msl_core_brute_play(MslCoreBrute* brute, int32_t attacker,
                                   int32_t defender, MslBrutePlay* out)
 {
@@ -1292,9 +1494,8 @@ MslCoreResult msl_core_brute_ruled(MslCoreBrute* brute, int32_t frames,
 MslCoreResult msl_core_brute_search(MslCoreBrute* brute, int32_t frames,
                                     int32_t attacker, int32_t defender,
                                     uint32_t level, int attacking,
-                                    uint32_t spread, int32_t* out_holds)
+                                    int32_t* out_holds)
 {
-    (void) spread;
     (void) brute;
     (void) frames;
     (void) attacker;
