@@ -322,8 +322,26 @@ enum {
   MSL_BRUTE_MAX_MENUS = 16,
   MSL_BRUTE_MAX_MENU_MOVES = 32,
   MSL_BRUTE_ACTIONS = 1024,
+  MSL_BRUTE_MAX_ZONES = 8,
   MSL_BRUTE_NO_MOVE = -1,
 };
+
+// A set of positions whose result is known. It holds when both fighters are free to pick, the
+// attacker's action is in `attacker`, the defender's in `defender`, the defender's x minus the
+// attacker's (its size alone with either_side) is within gap_min..gap_max, the defender's x within
+// x_min..x_max and (same_y) they are at the same height. The position is then the attacker's (attacker_wins) or the defender's.
+typedef struct MslBruteZone {
+  uint8_t attacker_wins;
+  uint8_t same_y;
+  uint8_t either_side;
+  uint8_t _reserved;
+  float gap_min;
+  float gap_max;
+  float x_min;
+  float x_max;
+  uint8_t attacker[MSL_BRUTE_ACTIONS];
+  uint8_t defender[MSL_BRUTE_ACTIONS];
+} MslBruteZone;
 
 // A move is a run of inputs, one per frame, stick x written as if the opponent were to the right:
 // frames[move_start[m] .. move_start[m + 1]). A fighter whose action id is `a` may pick the moves
@@ -331,6 +349,9 @@ enum {
 // position where the defender's action is in trap_defender, the attacker's is in trap_attacker and
 // free to pick, they are within trap_reach of each other and (trap_same_y) at the same height
 // counts as won by the attacker.
+// A fighter whose action is in `caught` has been hit (a grab moves no percent). `zones` are looked
+// at before the frames run out and the trap after. With `timeout_attacker` a line whose frames run
+// out is the attacker's instead of the defender's: the defender then has to reach one of his zones.
 typedef struct MslBruteRules {
   uint32_t move_count;
   uint32_t menu_count;
@@ -345,6 +366,13 @@ typedef struct MslBruteRules {
   float trap_reach;
   uint8_t trap_attacker[MSL_BRUTE_ACTIONS];
   uint8_t trap_defender[MSL_BRUTE_ACTIONS];
+  uint8_t caught[MSL_BRUTE_ACTIONS];
+  uint8_t defender_menu[MSL_BRUTE_ACTIONS]; // the defender's menus, where they differ (defender_menus)
+  uint8_t timeout_attacker;
+  uint8_t zone_count;
+  uint8_t defender_menus;
+  uint8_t _reserved2;
+  MslBruteZone zones[MSL_BRUTE_MAX_ZONES];
 } MslBruteRules;
 
 // A move in flight is move | frame << 8 | (1 << 24 if it is played facing left), or
@@ -397,6 +425,10 @@ MSL_API MslResult msl_brute_options(MslBrute* brute, int32_t attacker, int32_t d
                                     int32_t defenders[], uint32_t* defender_count);
 // Whether the rules' trap holds in the current state, for an attacker free to pick.
 MSL_API MslResult msl_brute_trapped(MslBrute* brute, int32_t* out_trapped);
+// Whose the current position is by the rules alone with `frames` left and the given moves in
+// flight: 1 the attacker's, 0 the defender's, -1 it has to be played on.
+MSL_API MslResult msl_brute_ruled(MslBrute* brute, int32_t frames, int32_t attacker,
+                                  int32_t defender, int32_t* out_whose);
 MSL_API MslResult msl_brute_search(MslBrute* brute, int32_t frames, int32_t attacker,
                                    int32_t defender, uint32_t level, int attacking,
                                    uint32_t spread, int32_t* out_holds);

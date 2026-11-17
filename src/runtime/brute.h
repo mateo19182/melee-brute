@@ -28,6 +28,9 @@ MslCoreResult msl_core_brute_options(MslCoreBrute* brute, int32_t attacker,
                                      int32_t defenders[],
                                      uint32_t* defender_count);
 MslCoreResult msl_core_brute_trapped(MslCoreBrute* brute, int32_t* out_trapped);
+MslCoreResult msl_core_brute_ruled(MslCoreBrute* brute, int32_t frames,
+                                   int32_t attacker, int32_t defender,
+                                   int32_t* out_whose);
 MslCoreResult msl_core_brute_search(MslCoreBrute* brute, int32_t frames,
                                     int32_t attacker, int32_t defender,
                                     uint32_t level, int attacking,

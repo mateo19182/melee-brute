@@ -8,7 +8,7 @@
         print(m.players()[1]["percent"])
 """
 from melee_brute.match import A, B, L, NEUTRAL, R, X, Y, Z, Match, pad
-from melee_brute.search import Forced, Rules, Trap, best, first_hit, improve, solve
+from melee_brute.search import Forced, Rules, Trap, Zone, best, first_hit, improve, solve
 
-__all__ = ["A", "B", "L", "NEUTRAL", "R", "X", "Y", "Z", "Match", "pad", "Forced", "Rules", "Trap", "best",
+__all__ = ["A", "B", "L", "NEUTRAL", "R", "X", "Y", "Z", "Match", "pad", "Forced", "Rules", "Trap", "Zone", "best",
            "first_hit", "improve", "solve"]

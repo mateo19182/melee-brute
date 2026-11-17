@@ -192,3 +192,72 @@ def test_solve_on_forked_processes_matches_one_process():
     f = Forced(m, fox.RULES)
     assert not f.win(6)
     assert solve(root, fox.RULES, 6, "win", workers=2, table_mb=16)["holds"] == []
+
+
+def _corner(gap, hop=0):
+    from melee_brute import Match, fox
+    m = Match()
+    m.load(fox.corner(m, gap, hop=hop))
+    return m
+
+
+def test_a_grab_counts_as_a_hit_only_where_the_rules_say_so():
+    from melee_brute import Forced, fox
+    m = _corner(11.5)  # 10.2 apart: the standing grab reaches
+
+    def grabbed(rules):
+        f = Forced(m, rules)
+        m.checkpoint(0)
+        out = 0
+        for i in range(12):
+            out = f.play(("grab" if i == 0 else "wait", 0, 1), ("wait", 0, -1))[0]
+            if out:
+                break
+        m.rollback(0)
+        return out
+    plain = fox.Rules(fox.MOVES1, fox.MENUS1, fox.ACTIONS1)
+    assert grabbed(fox.frame_rules()) == 1 and grabbed(plain) == 0
+
+
+def test_the_defender_can_have_menus_of_his_own():
+    from melee_brute import Forced, fox
+    m = _corner(14)
+    att, dfn = Forced(m, fox.frame_rules(defender={"ground": ("wait", "shine")})).options()
+    assert [d[0] for d in dfn] == ["wait", "shine"] and [a[0] for a in att] == list(fox.MENUS1["ground"])
+
+
+def test_zones_and_the_timeout_decide_a_position_without_search():
+    from melee_brute import Forced, Zone, fox
+    m = _corner(14)  # both standing 12.59 apart: nothing lands in two frames
+    everywhere = dict(attacker=frozenset(fox.GROUND), defender=frozenset(fox.GROUND))
+    f = Forced(m, fox.frame_rules())
+    assert f.ruled(2) is None and f.ruled(0) is False and f.safe(2) and not f.win(2)
+    f = Forced(m, fox.frame_rules(timeout="attacker"))
+    assert f.ruled(0) is True and f.win(2) and not f.safe(2)
+    f = Forced(m, fox.frame_rules(zones=(Zone("attacker", **everywhere),)))
+    assert f.ruled(2) is True and f.win(2) and not f.safe(2)
+    # the defender has to reach his zone before the frames run out: the one on his side of the stage holds,
+    # the one on the far side cannot be reached
+    here = Zone("defender", gap=(12, 13), x=(0, 90), **everywhere)
+    there = Zone("defender", gap=(12, 13), x=(-90, 0), **everywhere)
+    assert Forced(m, fox.frame_rules(zones=(here,), timeout="attacker")).safe(2)
+    f = Forced(m, fox.frame_rules(zones=(there,), timeout="attacker"))
+    assert f.ruled(2) is None and not f.safe(2)
+    # either_side reads the gap as a distance
+    back = Zone("attacker", gap=(-13, -12), **everywhere)
+    assert Forced(m, fox.frame_rules(zones=(back,))).ruled(2) is None
+    assert Forced(m, fox.frame_rules(zones=(Zone("attacker", gap=(12, 13), either_side=True, **everywhere),))).ruled(2)
+
+
+def test_one_input_a_frame_gives_the_known_answers():
+    """Solved before as the simultaneous game (melee-llm, docs/optimal-play.md section 13): five frames into
+    the attacker's short hop the air shine is forced unless the defender shields; nine frames in it is a guess."""
+    from melee_brute import Forced, fox
+    bare = fox.frame_rules(defender={"ground": tuple(x for x in fox.MENUS1["ground"] if x != "shield")})
+    m = _corner(11.5, hop=5)
+    f = Forced(m, bare)
+    assert f.win(10) and not f.safe(10)
+    m = _corner(11.5, hop=9)
+    f = Forced(m, bare)
+    assert not f.win(6) and not f.safe(6)
+    assert Forced(m, fox.frame_rules()).safe(6)

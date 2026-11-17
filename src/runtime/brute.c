@@ -551,10 +551,15 @@ static inline void views(const MslCoreBrute* brute, MslCoreBruteView view[2])
 static inline int first_hit(const MslCoreBrute* brute,
                             const MslCoreBruteView view[2])
 {
+    const uint8_t* caught = brute->rules.caught;
     double hurt1 = (double) view[0].percent - brute->base_percent[0] +
-                   100.0 * (brute->base_stocks[0] - (int) view[0].stocks);
+                   100.0 * (brute->base_stocks[0] - (int) view[0].stocks) +
+                   (view[0].action_id < MSL_BRUTE_ACTIONS &&
+                    caught[view[0].action_id]);
     double hurt2 = (double) view[1].percent - brute->base_percent[1] +
-                   100.0 * (brute->base_stocks[1] - (int) view[1].stocks);
+                   100.0 * (brute->base_stocks[1] - (int) view[1].stocks) +
+                   (view[1].action_id < MSL_BRUTE_ACTIONS &&
+                    caught[view[1].action_id]);
     return hurt1 == 0.0 && hurt2 == 0.0 ? 0 : hurt2 > hurt1 ? 1 : -1;
 }
 
@@ -630,6 +635,11 @@ static void options(const MslCoreBrute* brute, const MslCoreBruteView view[2],
         *defender_count = 1;
     } else {
         uint32_t menu = menu_of(rules, view[1].action_id);
+        if (rules->defender_menus) {
+            menu = rules->defender_menu[view[1].action_id < MSL_BRUTE_ACTIONS
+                                            ? view[1].action_id
+                                            : MSL_BRUTE_ACTIONS - 1];
+        }
         for (i = 0; i < rules->menu_size[menu]; ++i) {
             defenders[i] = MOVE_PACK(rules->menu_moves[menu][i], 0, -toward);
         }
@@ -738,22 +748,53 @@ static void table_store(MslCoreBrute* brute, const uint64_t key[2], int frames,
     brute->stats.table_stores += 1;
 }
 
+// Whose a position is by the rules alone, with `frames` left and nobody hit:
+// 1 the attacker's, 0 the defender's, -1 it has to be played on.
+static inline int ruled(const MslCoreBrute* brute,
+                        const MslCoreBruteView view[2], int32_t attacker,
+                        int32_t defender, int frames)
+{
+    const MslBruteRules* rules = &brute->rules;
+    uint32_t z;
+    if (attacker < 0 && defender < 0 && view[0].action_id < MSL_BRUTE_ACTIONS &&
+        view[1].action_id < MSL_BRUTE_ACTIONS)
+    {
+        float gap = view[1].pos_x - view[0].pos_x;
+        for (z = 0; z < rules->zone_count; ++z) {
+            const MslBruteZone* zone = &rules->zones[z];
+            float apart = zone->either_side && gap < 0 ? -gap : gap;
+            if (zone->attacker[view[0].action_id] &&
+                zone->defender[view[1].action_id] && apart >= zone->gap_min &&
+                apart <= zone->gap_max && view[1].pos_x >= zone->x_min &&
+                view[1].pos_x <= zone->x_max &&
+                (!zone->same_y || view[0].pos_y == view[1].pos_y))
+            {
+                return zone->attacker_wins != 0;
+            }
+        }
+    }
+    if (frames <= 0) {
+        return rules->timeout_attacker != 0;
+    }
+    if (attacker < 0 && trapped(brute, view)) {
+        return 1;
+    }
+    return -1;
+}
+
 // What the search would answer in the state a joint move led to, when that
 // needs no search: 1 or 0, or -1 when it has to be searched.
 static inline int settle(const MslCoreBrute* brute, const MslBrutePlay* kid,
                          const MslCoreBruteView view[2], int frames,
                          int attacking)
 {
+    int whose;
     if (kid->outcome != 0) {
         return (kid->outcome > 0) == attacking;
     }
-    if (frames - kid->frames <= 0) {
-        return !attacking;
-    }
-    if (kid->attacker < 0 && trapped(brute, view)) {
-        return attacking;
-    }
-    return -1;
+    whose = ruled(brute, view, kid->attacker, kid->defender,
+                  frames - kid->frames);
+    return whose < 0 ? -1 : whose == attacking;
 }
 
 static inline void spread_moves(const MslCoreBrute* brute, uint32_t level,
@@ -831,13 +872,12 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
     uint32_t i;
     uint64_t key[2];
     uint64_t started = brute->stats.positions;
+    int whose;
 
-    if (frames <= 0) {
-        return !attacking;
-    }
     views(brute, view);
-    if (attacker < 0 && trapped(brute, view)) {
-        return attacking;
+    whose = ruled(brute, view, attacker, defender, frames);
+    if (whose >= 0) {
+        return whose == attacking;
     }
     if (level >= brute->level_count || frames >= BRUTE_NO_WIN) {
         brute->failed = 1;
@@ -857,6 +897,11 @@ static int search(MslCoreBrute* brute, int frames, int32_t attacker,
             msl_core_match_brute_look(brute->match, 1,
                                       look + MSL_CORE_BRUTE_LOOK_FIELDS);
             hash_bytes((const uint8_t*) look, sizeof(look), 0, key);
+        }
+        // With the timeout the attacker's, more frames help the defender and
+        // fewer the attacker, so an answer is kept for its own frame count.
+        if (brute->rules.timeout_attacker) {
+            moves ^= mix64((uint64_t) frames, 0xA24BAED4963EE407ULL);
         }
         key[0] ^= mix64(moves + (uint64_t) attacking, 0x9E3779B97F4A7C15ULL);
         key[1] ^= mix64(moves ^ 0xD1B54A32D192ED03ULL,
@@ -1000,7 +1045,10 @@ MslCoreResult msl_core_brute_begin(MslCoreBrute* brute,
         }
     }
     for (i = 0; i < MSL_BRUTE_ACTIONS; ++i) {
-        if (rules->action_menu[i] >= rules->menu_count) {
+        if (rules->action_menu[i] >= rules->menu_count ||
+            (rules->defender_menus &&
+             rules->defender_menu[i] >= rules->menu_count))
+        {
             return MSL_CORE_INVALID_ARGUMENT;
         }
     }
@@ -1083,6 +1131,19 @@ MslCoreResult msl_core_brute_trapped(MslCoreBrute* brute, int32_t* out_trapped)
     }
     views(brute, view);
     *out_trapped = trapped(brute, view);
+    return MSL_CORE_OK;
+}
+
+MslCoreResult msl_core_brute_ruled(MslCoreBrute* brute, int32_t frames,
+                                   int32_t attacker, int32_t defender,
+                                   int32_t* out_whose)
+{
+    MslCoreBruteView view[2];
+    if (brute == NULL || out_whose == NULL || !brute->has_rules) {
+        return MSL_CORE_INVALID_ARGUMENT;
+    }
+    views(brute, view);
+    *out_whose = ruled(brute, view, attacker, defender, frames);
     return MSL_CORE_OK;
 }
 
@@ -1209,6 +1270,18 @@ MslCoreResult msl_core_brute_trapped(MslCoreBrute* brute, int32_t* out_trapped)
 {
     (void) brute;
     (void) out_trapped;
+    return MSL_CORE_INVALID_STATE;
+}
+
+MslCoreResult msl_core_brute_ruled(MslCoreBrute* brute, int32_t frames,
+                                   int32_t attacker, int32_t defender,
+                                   int32_t* out_whose)
+{
+    (void) brute;
+    (void) frames;
+    (void) attacker;
+    (void) defender;
+    (void) out_whose;
     return MSL_CORE_INVALID_STATE;
 }
 
