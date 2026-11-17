@@ -1,0 +1,1111 @@
+{
+ "name": "generated_tapes",
+ "notes": "Recipes for the differential gate, chosen by tools/validation/differential.py select: each reaches at least min_blocks basic blocks the ones before it do not.",
+ "min_blocks": 20,
+ "tapes": [
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "PIKACHU",
+    "YOUNG_LINK",
+    "ICE_CLIMBERS",
+    "NESS"
+   ],
+   "seed": 85009,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "FOX",
+    "SAMUS"
+   ],
+   "seed": 9,
+   "frames": 3000,
+   "percents": [
+    98,
+    92
+   ]
+  },
+  {
+   "stage": "FINAL_DESTINATION",
+   "fighters": [
+    "PIKACHU",
+    "SHEIK",
+    "YOSHI",
+    "GAMEWATCH"
+   ],
+   "seed": 25000,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "POKEMON_STADIUM",
+   "fighters": [
+    "PEACH",
+    "GAMEWATCH",
+    "KIRBY",
+    "SAMUS"
+   ],
+   "seed": 15011,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "MEWTWO",
+    "ROY",
+    "FOX",
+    "LINK"
+   ],
+   "seed": 95009,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "DRMARIO",
+    "DONKEY_KONG",
+    "JIGGLYPUFF",
+    "MARIO"
+   ],
+   "seed": 45010,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "FALCON",
+    "ROY",
+    "YOSHI",
+    "ICE_CLIMBERS"
+   ],
+   "seed": 105008,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "BOWSER",
+    "PEACH"
+   ],
+   "seed": 90046,
+   "frames": 3000
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "SHEIK",
+    "LUIGI",
+    "SAMUS",
+    "ZELDA"
+   ],
+   "seed": 55007,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "FALCON",
+    "NESS",
+    "KIRBY",
+    "LINK"
+   ],
+   "seed": 115008,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "POKEMON_STADIUM",
+   "fighters": [
+    "SHEIK",
+    "ICE_CLIMBERS"
+   ],
+   "seed": 110054,
+   "frames": 3000,
+   "percents": [
+    47,
+    8
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "LUIGI",
+    "YOUNG_LINK",
+    "GANONDORF",
+    "FALCO"
+   ],
+   "seed": 5007,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "JIGGLYPUFF",
+    "KIRBY"
+   ],
+   "seed": 20075,
+   "frames": 3000,
+   "percents": [
+    37,
+    24
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "BOWSER",
+    "FALCON",
+    "MARTH"
+   ],
+   "seed": 66001,
+   "frames": 3000,
+   "teams": [
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "POKEMON_STADIUM",
+   "fighters": [
+    "KIRBY",
+    "BOWSER"
+   ],
+   "seed": 10030,
+   "frames": 3000,
+   "percents": [
+    97,
+    14
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "SAMUS",
+    "KIRBY",
+    "LINK",
+    "NESS"
+   ],
+   "seed": 85002,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "FINAL_DESTINATION",
+   "fighters": [
+    "DONKEY_KONG",
+    "PEACH"
+   ],
+   "seed": 10019,
+   "frames": 3000
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "LINK",
+    "LINK"
+   ],
+   "seed": 100033,
+   "frames": 3000,
+   "percents": [
+    85,
+    75
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "LINK",
+    "MEWTWO",
+    "NESS",
+    "YOSHI"
+   ],
+   "seed": 65007,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "GAMEWATCH",
+    "ICE_CLIMBERS"
+   ],
+   "seed": 30117,
+   "frames": 3000,
+   "percents": [
+    59,
+    25
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "KIRBY",
+    "YOSHI"
+   ],
+   "seed": 60070,
+   "frames": 3000
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "KIRBY",
+    "YOUNG_LINK"
+   ],
+   "seed": 50100,
+   "frames": 3000
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "GANONDORF",
+    "MARTH",
+    "BOWSER",
+    "DONKEY_KONG"
+   ],
+   "seed": 25009,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "FALCO",
+    "PEACH",
+    "BOWSER",
+    "LINK"
+   ],
+   "seed": 5004,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "ICE_CLIMBERS",
+    "LUIGI"
+   ],
+   "seed": 110053,
+   "frames": 3000,
+   "percents": [
+    100,
+    36
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "FALCO",
+    "GANONDORF",
+    "JIGGLYPUFF",
+    "FALCON"
+   ],
+   "seed": 105009,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "POKEMON_STADIUM",
+   "fighters": [
+    "KIRBY",
+    "MARTH"
+   ],
+   "seed": 70090,
+   "frames": 3000,
+   "percents": [
+    100,
+    88
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "SAMUS",
+    "KIRBY"
+   ],
+   "seed": 65,
+   "frames": 3000,
+   "percents": [
+    9,
+    69
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "KIRBY",
+    "MEWTWO"
+   ],
+   "seed": 80080,
+   "frames": 3000,
+   "percents": [
+    64,
+    78
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "MARTH",
+    "SAMUS"
+   ],
+   "seed": 62,
+   "frames": 3000,
+   "percents": [
+    60,
+    2
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "FOX",
+    "FALCO",
+    "DONKEY_KONG",
+    "ZELDA"
+   ],
+   "seed": 45002,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "PEACH",
+    "SHEIK"
+   ],
+   "seed": 70047,
+   "frames": 3000,
+   "percents": [
+    74,
+    44
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "PIKACHU",
+    "PEACH",
+    "YOSHI",
+    "NESS"
+   ],
+   "seed": 65009,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "DONKEY_KONG",
+    "JIGGLYPUFF",
+    "ROY",
+    "PICHU"
+   ],
+   "seed": 115010,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "POKEMON_STADIUM",
+   "fighters": [
+    "FALCO",
+    "ICE_CLIMBERS"
+   ],
+   "seed": 100054,
+   "frames": 3000,
+   "percents": [
+    34,
+    46
+   ]
+  },
+  {
+   "stage": "POKEMON_STADIUM",
+   "fighters": [
+    "PIKACHU",
+    "GAMEWATCH",
+    "DRMARIO",
+    "MEWTWO"
+   ],
+   "seed": 115005,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "KIRBY",
+    "SHEIK"
+   ],
+   "seed": 50040,
+   "frames": 3000
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "NESS",
+    "NESS",
+    "PEACH",
+    "FOX"
+   ],
+   "seed": 85007,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "FOX",
+    "SAMUS",
+    "YOUNG_LINK",
+    "PIKACHU"
+   ],
+   "seed": 75009,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "DRMARIO",
+    "NESS",
+    "FOX",
+    "DONKEY_KONG"
+   ],
+   "seed": 15004,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "POKEMON_STADIUM",
+   "fighters": [
+    "LINK",
+    "YOUNG_LINK"
+   ],
+   "seed": 60096,
+   "frames": 3000,
+   "percents": [
+    58,
+    15
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "SHEIK",
+    "SHEIK",
+    "KIRBY",
+    "YOUNG_LINK"
+   ],
+   "seed": 55003,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "POKEMON_STADIUM",
+   "fighters": [
+    "KIRBY",
+    "PIKACHU"
+   ],
+   "seed": 60,
+   "frames": 3000,
+   "percents": [
+    31,
+    57
+   ]
+  },
+  {
+   "stage": "FINAL_DESTINATION",
+   "fighters": [
+    "PEACH",
+    "ICE_CLIMBERS"
+   ],
+   "seed": 49,
+   "frames": 3000
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "KIRBY",
+    "MEWTWO"
+   ],
+   "seed": 40076,
+   "frames": 3000
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "DRMARIO",
+    "KIRBY"
+   ],
+   "seed": 50105,
+   "frames": 3000,
+   "percents": [
+    73,
+    81
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "KIRBY",
+    "DONKEY_KONG"
+   ],
+   "seed": 20,
+   "frames": 3000,
+   "percents": [
+    99,
+    35
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "YOUNG_LINK",
+    "JIGGLYPUFF"
+   ],
+   "seed": 20074,
+   "frames": 3000,
+   "percents": [
+    38,
+    26
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "KIRBY",
+    "PEACH"
+   ],
+   "seed": 23,
+   "frames": 3000,
+   "percents": [
+    69,
+    49
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "LUIGI",
+    "NESS"
+   ],
+   "seed": 100083,
+   "frames": 3000,
+   "percents": [
+    46,
+    16
+   ]
+  },
+  {
+   "stage": "FINAL_DESTINATION",
+   "fighters": [
+    "ICE_CLIMBERS",
+    "KIRBY"
+   ],
+   "seed": 80055,
+   "frames": 3000
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "MARIO",
+    "MEWTWO"
+   ],
+   "seed": 70003,
+   "frames": 3000,
+   "percents": [
+    83,
+    1
+   ]
+  },
+  {
+   "stage": "FINAL_DESTINATION",
+   "fighters": [
+    "YOUNG_LINK",
+    "KIRBY"
+   ],
+   "seed": 30097,
+   "frames": 3000
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "NESS",
+    "KIRBY"
+   ],
+   "seed": 20045,
+   "frames": 3000,
+   "percents": [
+    56,
+    82
+   ]
+  },
+  {
+   "stage": "FINAL_DESTINATION",
+   "fighters": [
+    "FALCON",
+    "KIRBY"
+   ],
+   "seed": 40013,
+   "frames": 3000
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "YOSHI",
+    "SAMUS"
+   ],
+   "seed": 20069,
+   "frames": 3000,
+   "percents": [
+    20,
+    0
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "ICE_CLIMBERS",
+    "ICE_CLIMBERS"
+   ],
+   "seed": 50052,
+   "frames": 3000
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "GANONDORF",
+    "NESS"
+   ],
+   "seed": 60044,
+   "frames": 3000,
+   "percents": [
+    77,
+    51
+   ]
+  },
+  {
+   "stage": "FINAL_DESTINATION",
+   "fighters": [
+    "LUIGI",
+    "KIRBY"
+   ],
+   "seed": 30085,
+   "frames": 3000
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "FALCON",
+    "NESS",
+    "MEWTWO",
+    "MARTH"
+   ],
+   "seed": 85001,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "LINK",
+    "KIRBY"
+   ],
+   "seed": 60035,
+   "frames": 3000,
+   "percents": [
+    57,
+    29
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "GAMEWATCH",
+    "SHEIK"
+   ],
+   "seed": 30119,
+   "frames": 3000,
+   "percents": [
+    83,
+    17
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "BOWSER",
+    "DRMARIO",
+    "DONKEY_KONG",
+    "ROY"
+   ],
+   "seed": 75002,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "PEACH",
+    "ICE_CLIMBERS"
+   ],
+   "seed": 60052,
+   "frames": 3000
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "LUIGI",
+    "DONKEY_KONG"
+   ],
+   "seed": 70016,
+   "frames": 3000
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "FOX",
+    "SAMUS"
+   ],
+   "seed": 40062,
+   "frames": 3000,
+   "percents": [
+    85,
+    18
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "PIKACHU",
+    "SHEIK"
+   ],
+   "seed": 40057,
+   "frames": 3000,
+   "percents": [
+    11,
+    11
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "BOWSER",
+    "SHEIK"
+   ],
+   "seed": 90027,
+   "frames": 3000,
+   "percents": [
+    70,
+    81
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "SAMUS",
+    "DONKEY_KONG"
+   ],
+   "seed": 110016,
+   "frames": 3000
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "KIRBY",
+    "YOSHI"
+   ],
+   "seed": 70,
+   "frames": 3000
+  },
+  {
+   "stage": "FINAL_DESTINATION",
+   "fighters": [
+    "YOUNG_LINK",
+    "MEWTWO"
+   ],
+   "seed": 10097,
+   "frames": 3000
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "SHEIK",
+    "ICE_CLIMBERS",
+    "FALCO",
+    "SHEIK"
+   ],
+   "seed": 35002,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "KIRBY",
+    "ROY"
+   ],
+   "seed": 30130,
+   "frames": 3000
+  },
+  {
+   "stage": "FINAL_DESTINATION",
+   "fighters": [
+    "PICHU",
+    "KIRBY"
+   ],
+   "seed": 50115,
+   "frames": 3000
+  },
+  {
+   "stage": "POKEMON_STADIUM",
+   "fighters": [
+    "NESS",
+    "SHEIK"
+   ],
+   "seed": 80036,
+   "frames": 3000,
+   "percents": [
+    77,
+    97
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "MEWTWO",
+    "GAMEWATCH",
+    "GAMEWATCH",
+    "ROY"
+   ],
+   "seed": 25001,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "DREAM_LAND_N64",
+   "fighters": [
+    "PEACH",
+    "MARTH"
+   ],
+   "seed": 40047,
+   "frames": 3000,
+   "percents": [
+    0,
+    1
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "MARIO",
+    "YOUNG_LINK"
+   ],
+   "seed": 60098,
+   "frames": 3000,
+   "percents": [
+    33,
+    1
+   ]
+  },
+  {
+   "stage": "FOUNTAIN_OF_DREAMS",
+   "fighters": [
+    "PIKACHU",
+    "GAMEWATCH",
+    "SHEIK",
+    "ROY"
+   ],
+   "seed": 15009,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "YOSHIS_STORY",
+   "fighters": [
+    "ICE_CLIMBERS",
+    "FOX",
+    "SAMUS",
+    "FOX"
+   ],
+   "seed": 55002,
+   "frames": 3000,
+   "teams": [
+    0,
+    0,
+    1,
+    1
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "KIRBY",
+    "PIKACHU"
+   ],
+   "seed": 60056,
+   "frames": 3000,
+   "percents": [
+    69,
+    85
+   ]
+  },
+  {
+   "stage": "BATTLEFIELD",
+   "fighters": [
+    "KIRBY",
+    "DONKEY_KONG"
+   ],
+   "seed": 110020,
+   "frames": 3000,
+   "percents": [
+    69,
+    17
+   ]
+  }
+ ]
+}

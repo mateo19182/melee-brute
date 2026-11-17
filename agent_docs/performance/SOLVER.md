@@ -80,52 +80,46 @@ python -m tools.validation.validate_replay --suite replays/suites/melee_core_agg
 - Solver changes: `pytest tests/test_brute.py`, then the position counts and answers of a fixed set
   of positions before and after.
 
-## What the gate does not cover
+## What the gates cover
 
-Measured 2026-11-17 with `make validation-coverage`: the recordings execute 62% of source lines and
-67% of functions; 69% of lines in `melee/ft`, 72% in `melee/it`. About 26,000 fighter and item lines
-and 2,300 functions are never run. Until the release profile changed, that code was at `-O0`; now it
-is optimized on the strength of flags, not recordings.
+Measured 2026-11-17. `make validation-coverage` counts the lines the 524 recordings execute;
+`make validation-tape-coverage` adds the 82 generated tapes of the differential gate
+([VALIDATION.md](../VALIDATION.md)).
 
-| Owner | Lines run | Note |
-| --- | --- | --- |
-| `ftKirby` | 53% | copy abilities: the largest reachable gap |
-| `ftCommon` | 65% | includes item and single-player states the rules never reach |
-| `ftDonkey`, `ftSeak`, `ftZelda` | 70 to 74% | |
-| `ftNess` to `ftPikachu` | 79 to 86% | |
-| `ftFox`, `ftMario`, `ftCaptain`, `ftLink` | 90 to 95% | |
-| `it/items/itbombhei.c`, `itdosei.c` | 43%, 47% | Peach's rare pulls |
-| `it/items/itnessbat.c` | 42% | |
-| `gr/grpstadium.c` | 23% | transformations are out of scope |
+| Owner | Recordings | Tapes | Both |
+| --- | --- | --- | --- |
+| all source | 62.4% | 60.5% | 65.5% |
+| `melee/ft/chara/ftKirby` | 52.9% | 53.9% | 67.9% |
+| `melee/ft/chara/ftCommon` | 65.3% | 61.2% | 66.7% |
+| `melee/it` | 72.4% | 68.5% | 74.2% |
+| `melee/ft/chara/ftNess` | 79.1% | 56.7% | 82.4% |
+| `melee/gr` | 45.8% | 39.2% | 45.8% |
 
-Part of the uncovered code cannot run under the supported rules (items off, no CPU players, no
-single-player modes): hammer, mushroom, barrel, warp star, `ftcpuattack.c`. That part needs listing
-once so the reachable gap is known.
+- The release library matches the `-O0` reference on every frame of every tape (246,000 frames),
+  and the search's take-back and state hash hold on 4,100 checks across the whole roster, teams,
+  followers and items.
+- About a third of the source is still run by neither. Part of it cannot run under the supported
+  rules (items off, no CPU players, no single-player modes): hammer, mushroom, barrel, warp star,
+  `ftcpuattack.c`, Stadium's transformations. That part has not been listed, so the reachable gap
+  is not known yet.
+- Seeded random controllers level off: 1,776 candidate matches reach 43,411 blocks and 82 of them
+  reach 42,289. More seeds add little. What is left needs controllers that set things up on
+  purpose.
 
 ## Proposed next
 
-### 1. A complete check before more risk
+### 1. Closing the coverage gap
 
-The gate compares against Slippi recordings, so its coverage is whatever people happened to record.
-For build changes that is more than is needed: the `-O0` build is itself the reference.
+The differential gate and the roster-wide take-back check exist. What is left of this step:
 
-1. **Differential gate.** Play the same input tape through the `-O0` runner and the release runner
-   and compare every frame's full output. Any tape works: no recording, no Dolphin. Add it as a
-   validation backend pair so the existing comparison and reporting are reused.
-2. **Generated tapes, kept by coverage.** Scripted and random inputs for all 26 fighters on the six
-   stages, in singles and teams; keep a tape when `validation-coverage` shows it reaches new lines.
-   Aim at the reachable gaps above first: Kirby's copies against every fighter, Peach's pulls, Ness,
-   grabs and throws between every weight class, shield breaks, ledge and wall interactions.
-3. **A list of unreachable owners**, so the report can state coverage of reachable code and the
-   target can be 95% of it.
-4. **Solver checks across the roster.** `tests/test_brute.py` proves take-back and the hash on Fox
-   against Fox only. Run the rollback-and-replay savestate comparison on generated tapes for every
-   fighter, with items in play and with the Ice Climbers.
-5. **A corpus of solved positions.** Answers and position counts for a few hundred positions, exact
+1. **A list of unreachable owners**, so the report states coverage of reachable code and the target
+   can be 95% of it.
+2. **Controllers with a purpose.** Per fighter: every special in every state it has (charged,
+   held, cancelled, in the air, into a wall, out of a grab), Kirby's swallow of each fighter and
+   each copied special, Peach's pulls until the rare ones come, every throw on every weight,
+   shield breaks, ledge and wall options, deaths off each blast zone. Keep them by coverage as now.
+3. **A corpus of solved positions.** Answers and position counts for a few hundred positions, exact
    and look-alike, as the regression set for every search change below.
-
-Order matters: 1 and 2 retire the open risk of the release profile, 4 and 5 are what any change to
-state merging or take-back has to pass.
 
 ### 2. Speed, in order of expected return
 

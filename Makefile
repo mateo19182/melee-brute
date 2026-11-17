@@ -452,7 +452,7 @@ endif
 
 NATIVE_FLAGS_SIGNATURE := $(NATIVE_CPPFLAGS)|$(NATIVE_BASE_CFLAGS)|$(NATIVE_LINK_FLAGS)|$(NATIVE_RELEASE_PROFILE)|$(NATIVE_SUBSYSTEM_PROFILE)|$(NATIVE_RELEASE_O1_OBJS)|$(NATIVE_RELEASE_O2_OBJS)|$(NATIVE_RELEASE_OPT_OBJS)
 
-.PHONY: ppc-layout ppc-layout-check all bootstrap extract ppc native python-library native-release release-profile native-release-benchmark runtime-census large-batch-smoke benchmark-prepare benchmark-native subsystem-profile benchmark-9950x3d-vcache-256 benchmark-9950x3d-vcache-512 benchmark-9950x3d-frequency-256 benchmark-9950x3d-frequency-512 wasm wasm-smoke viewer-build viewer viewer-smoke viewer-production-smoke viewer-schema viewer-schema-check lifecycle-benchmark source-check validator validation-suite validation-coverage validation-supported-domain validation-release-supported-domain clean toolchain data-check ppc-smoke native-smoke test test-full format-check slpz-convert FORCE
+.PHONY: ppc-layout ppc-layout-check all bootstrap extract ppc native python-library native-release release-profile native-release-benchmark runtime-census large-batch-smoke benchmark-prepare benchmark-native subsystem-profile benchmark-9950x3d-vcache-256 benchmark-9950x3d-vcache-512 benchmark-9950x3d-frequency-256 benchmark-9950x3d-frequency-512 wasm wasm-smoke viewer-build viewer viewer-smoke viewer-production-smoke viewer-schema viewer-schema-check lifecycle-benchmark source-check validator validation-suite validation-coverage validation-differential validation-tape-coverage python-coverage validation-supported-domain validation-release-supported-domain clean toolchain data-check ppc-smoke native-smoke test test-full format-check slpz-convert FORCE
 
 all: native python-library
 
@@ -995,6 +995,43 @@ validation-coverage: validator
 		--workers "$(VALIDATION_WORKERS)" --no-build | tail -n 1
 	@"$(PY)" -m tools.validation.coverage_report "$(VALIDATION_COVERAGE_BUILD)/obj" \
 		--json "$(VALIDATION_COVERAGE_BUILD)/coverage.json"
+
+# The differential gate: the -O0 library is the reference, and every frame of
+# every generated tape must come out the same on the release library. No
+# recording is involved, so the tapes can reach code the recordings do not.
+# The search's take-back and state hash are then checked on the same tapes.
+DIFFERENTIAL_CANDIDATES ?= $(BUILD_ROOT)/python-release/libmelee_core.so
+validation-differential: python-library python-release
+	@MSL_DATA_DIR="$(abspath $(MSL_DATA_DIR))" "$(PY)" -m tools.validation.differential \
+		check --reference "$(PYTHON_LIBRARY)" \
+		$(foreach lib,$(DIFFERENTIAL_CANDIDATES),--candidate "$(lib)") $(VALIDATION_ARGS)
+	@for lib in $(DIFFERENTIAL_CANDIDATES); do \
+		MSL_DATA_DIR="$(abspath $(MSL_DATA_DIR))" "$(PY)" -m tools.validation.differential \
+			takeback --library "$$lib" || exit 1; \
+	done
+
+# A library that counts lines and marks basic blocks, for choosing the tapes
+# (differential select) and for reporting what they reach.
+PYTHON_COVERAGE_BUILD := $(BUILD_ROOT)/python-coverage
+python-coverage:
+	@mkdir -p "$(PYTHON_COVERAGE_BUILD)"
+	@"$(HOST_CC)" -O2 -fPIC -c "$(ROOT)/tools/validation/trace_pc.c" \
+		-o "$(PYTHON_COVERAGE_BUILD)/trace_pc.o"
+	@rm -f "$(PYTHON_COVERAGE_BUILD)/libmelee_core.so"
+	@$(MAKE) --no-print-directory -f "$(ROOT)/Makefile" python-library \
+		PYTHON_BUILD="$(PYTHON_COVERAGE_BUILD)" \
+		NATIVE_CFLAGS="$(NATIVE_CFLAGS) --coverage -fsanitize-coverage=trace-pc" \
+		SHARED_LIB_LINK_FLAGS="$(SHARED_LIB_LINK_FLAGS) --coverage $(PYTHON_COVERAGE_BUILD)/trace_pc.o"
+
+# What the generated tapes execute, added to the recordings' counts when
+# validation-coverage has run.
+validation-tape-coverage: python-coverage
+	@find "$(PYTHON_COVERAGE_BUILD)" -name '*.gcda' -delete
+	@MSL_DATA_DIR="$(abspath $(MSL_DATA_DIR))" "$(PY)" -m tools.validation.differential \
+		play --counts --library "$(PYTHON_COVERAGE_BUILD)/libmelee_core.so"
+	@"$(PY)" -m tools.validation.coverage_report "$(PYTHON_COVERAGE_BUILD)/obj" \
+		$(wildcard $(VALIDATION_COVERAGE_BUILD)/obj) \
+		--json "$(PYTHON_COVERAGE_BUILD)/coverage.json"
 
 validation-supported-domain:
 	@$(MAKE) --no-print-directory -f "$(ROOT)/Makefile" validation-suite \
