@@ -102,27 +102,52 @@ class Trap:
 
 
 @dataclass(frozen=True)
+class Zone:
+    """A set of positions whose result is known, so a line that reaches one stops there: both fighters free to
+    pick, their actions in `attacker` and `defender`, P2's x minus P1's within `gap` (with `either_side`, its
+    size alone), P2's x within `x`, and (`same_y`) at the same height. `winner` is "attacker" or "defender". Use it to chain searches: what one
+    search proved about a set of positions is a zone of the next."""
+    winner: str
+    attacker: frozenset[int]
+    defender: frozenset[int]
+    gap: tuple[float, float] = (-1e9, 1e9)
+    x: tuple[float, float] = (-1e9, 1e9)
+    same_y: bool = True
+    either_side: bool = False
+
+
+@dataclass(frozen=True)
 class Rules:
     """`moves`: name -> one Input per frame, stick x written as if the opponent were to the right.
     `menus`: menu name -> the moves a fighter with that menu may pick. `actions`: menu name -> the action ids
-    that get it (the first menu listing an id wins); every other action gets the menu `otherwise`."""
+    that get it (the first menu listing an id wins); every other action gets the menu `otherwise`.
+    `defender`: menus by name that P2 gets instead of the ones in `menus`, when the two sides may not do the same.
+    `caught`: action ids that count as having been hit (a grab moves no percent). `zones`: positions whose
+    result is known. `timeout`: who gets a line whose frames run out, "defender" (he only has to last) or
+    "attacker" (the defender has to reach one of his zones in time)."""
     moves: Mapping[str, tuple[Input, ...]]
     menus: Mapping[str, tuple[str, ...]]
     actions: Mapping[str, Iterable[int]]
     otherwise: str = "locked"
     trap: Trap | None = None
+    defender: Mapping[str, tuple[str, ...]] | None = None
+    caught: frozenset[int] = frozenset()
+    zones: tuple[Zone, ...] = ()
+    timeout: str = "defender"
     names: tuple[str, ...] = field(init=False, compare=False)
     data: engine.RulesData = field(init=False, compare=False, repr=False)
 
     def __post_init__(self):
         names = tuple(self.moves)
+        theirs = dict(self.defender or {})  # P2's own menus are stored after the shared ones
         menus = tuple(self.menus)
+        picks_of = list(self.menus.values()) + list(theirs.values())
         d = engine.RulesData()
-        if (len(names) > engine.MAX_MOVES or len(menus) > engine.MAX_MENUS
+        if (len(names) > engine.MAX_MOVES or len(picks_of) > engine.MAX_MENUS
                 or sum(map(len, self.moves.values())) > engine.MAX_MOVE_FRAMES
-                or max(map(len, self.menus.values())) > engine.MAX_MENU_MOVES):
-            raise ValueError("too many moves, frames or menus for the search")
-        d.move_count, d.menu_count = len(names), len(menus)
+                or max(map(len, picks_of)) > engine.MAX_MENU_MOVES or set(theirs) - set(menus)):
+            raise ValueError("too many moves, frames or menus for the search, or a defender menu with a new name")
+        d.move_count, d.menu_count, d.defender_menus = len(names), len(picks_of), bool(theirs)
         at = 0
         for i, rows in enumerate(self.moves.values()):
             d.move_start[i] = at
@@ -130,15 +155,30 @@ class Rules:
                 d.frames[at] = engine.Pad(*row)
                 at += 1
         d.move_start[len(names)] = at
-        for i, picks in enumerate(self.menus.values()):
+        for i, picks in enumerate(picks_of):
             d.menu_size[i] = len(picks)
             for j, name in enumerate(picks):
                 d.menu_moves[i][j] = names.index(name)
+        second = {name: len(menus) + i for i, name in enumerate(theirs)}
         for a in range(engine.ACTIONS):
             d.action_menu[a] = menus.index(self.otherwise)
+            d.defender_menu[a] = second.get(self.otherwise, d.action_menu[a])
         for name in reversed(tuple(self.actions)):
             for a in self.actions[name]:
                 d.action_menu[a] = menus.index(name)
+                d.defender_menu[a] = second.get(name, d.action_menu[a])
+        if len(self.zones) > engine.MAX_ZONES or self.timeout not in ("defender", "attacker"):
+            raise ValueError("at most 8 zones, and timeout is 'defender' or 'attacker'")
+        for a in self.caught:
+            d.caught[a] = 1
+        d.timeout_attacker, d.zone_count = self.timeout == "attacker", len(self.zones)
+        for z, zone in zip(d.zones, self.zones):
+            z.attacker_wins, z.same_y, z.either_side = zone.winner == "attacker", zone.same_y, zone.either_side
+            (z.gap_min, z.gap_max), (z.x_min, z.x_max) = zone.gap, zone.x
+            for a in zone.attacker:
+                z.attacker[a] = 1
+            for a in zone.defender:
+                z.defender[a] = 1
         if self.trap:
             d.trap, d.trap_same_y, d.trap_reach = 1, self.trap.same_y, self.trap.reach
             for a in self.trap.attacker:
@@ -234,11 +274,13 @@ class Forced:
         return ([self._unpack(x) for x in self._att[:self._natt.value]],
                 [self._unpack(x) for x in self._dfn[:self._ndfn.value]])
 
-    def known_win(self, pa) -> bool:
-        """Is this a position the rules' trap counts as won, with the attacker free to pick?"""
+    def ruled(self, frames: int, pa=None, pd=None) -> bool | None:
+        """Whose this position is by the rules alone (zones, frames run out, trap) with nobody hit: True the
+        attacker's, False the defender's, None it has to be played on."""
         self._mine()
-        engine.ok(self.m.lib.msl_brute_trapped(self.m.brute, ctypes.byref(self._holds)))
-        return pa is None and bool(self._holds.value)
+        engine.ok(self.m.lib.msl_brute_ruled(self.m.brute, frames, self._pack(pa), self._pack(pd),
+                                             ctypes.byref(self._holds)))
+        return None if self._holds.value < 0 else bool(self._holds.value)
 
     def win(self, frames: int, pa=None, pd=None, depth: int = 0) -> bool:
         return self._search(frames, pa, pd, depth, True)
@@ -267,12 +309,11 @@ def _open(job):
     attacking, frames = _CFG["attacking"], _CFG["frames"]
     _F.m.checkpoint(0)
     o, u, ra, rd = _F.play(a, d)
+    whose = None if o else _F.ruled(frames - u, ra, rd)
     if o:
         done, nxt = (o > 0) == attacking, []
-    elif frames - u <= 0:
-        done, nxt = not attacking, []
-    elif _F.known_win(ra):
-        done, nxt = attacking, []
+    elif whose is not None:
+        done, nxt = whose == attacking, []
     else:
         done, nxt = None, _F.options(ra, rd)[0 if attacking else 1]
     _F.m.rollback(0)

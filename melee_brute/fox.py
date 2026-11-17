@@ -43,6 +43,34 @@ SHIELD_TRAP = Trap(attacker=frozenset(FREE), defender=frozenset({178, 179}), rea
 RULES = Rules(MOVES, MENUS, ACTIONS)
 RULES_TRAP = Rules(MOVES, MENUS, ACTIONS, trap=SHIELD_TRAP)
 
+# The same match with a decision on every frame, as two players (or bots) play it: every move is one input.
+# Holding a shield is choosing "shield" again; a dash is "in" twice; "walk_out" facing the opponent is a turn.
+MOVES1 = {
+    "wait": (NEUTRAL,), "in": (_IN,), "out": (_OUT,), "walk_in": (pad(x=30),), "walk_out": (pad(x=-30),),
+    "shine": (pad(B, y=-80),), "hold_b": (pad(B, y=-80),), "jab": (pad(A),), "grab": (pad(Z),), "hop": (pad(X),),
+    "shield": (_SHIELD,), "release": (NEUTRAL,), "roll_in": (pad(R, x=80, r=255),),
+    "roll_out": (pad(R, x=-80, r=255),), "spotdodge": (pad(R, y=-80, r=255),),
+    "shield_grab": (pad(R | A, r=255),), "jump": (pad(X),), "nair": (pad(A),), "jump_oos": (pad(R | X, r=255),),
+    "upb": (pad(B, y=80),), "usmash": (pad(A, y=80),),
+}
+MENUS1 = {
+    "ground": ("wait", "in", "out", "walk_in", "walk_out", "shine", "jab", "hop", "shield", "grab", "spotdodge"),
+    "air": ("wait", "in", "out", "shine", "jump", "nair"),
+    "squat": ("wait", "in", "out", "shine", "upb", "usmash", "grab"),  # the last three cancel the jump
+    "shine": ("wait", "hold_b", "jump"),
+    "shield": ("shield", "release", "jump_oos", "roll_in", "roll_out", "spotdodge", "shield_grab"),
+    "release": ("wait", "jump", "spotdodge"),  # the 15 frames of dropping a shield can be cut short by these
+    "locked": ("wait",),
+}
+RELEASE, HELD = {180}, frozenset(range(223, 229))  # dropping the shield; pulled in, held or pummelled by a grab
+ACTIONS1 = {**ACTIONS, "release": RELEASE}
+
+
+def frame_rules(menus: dict | None = None, **more) -> Rules:
+    """One-input-a-frame rules where a grab counts as a hit. `menus` replaces menus of `MENUS1` by name, to
+    widen or narrow what a state may do; `more` goes to `Rules` (defender, zones, trap, timeout)."""
+    return Rules(MOVES1, {**MENUS1, **(menus or {})}, ACTIONS1, caught=HELD, **more)
+
 
 def corner(match: Match, gap: float, ledge: float = 12, hop: int = 0) -> bytes:
     """P2 stands `ledge` units from the right ledge facing P1, who stands about `gap` away. With `hop`, P1 has

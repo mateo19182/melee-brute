@@ -51,7 +51,7 @@ score, line = best(m, choices, 4, lambda m: float(m.players()[0]["pos_x"]))
 | `Forced(match, rules).safe(frames)` | Can P2 avoid the first hit whatever P1 does, with P1 seeing each P2 move first? Yes means a guaranteed defence. If both are no, the position is decided by guessing. |
 | `solve(root, rules, frames, mode)` | `Forced` from a savestate on every core. |
 
-`Rules` are data: named moves (one input per frame), menus of moves, and which action ids get which menu. An optional `Trap` names a position the attacker is known to win. `melee_brute/fox.py` is a worked example for Fox against Fox, and the command line runs it:
+`Rules` are data: named moves (one input per frame), menus of moves, and which action ids get which menu. An optional `Trap` names a position the attacker is known to win; `Zone`s do the same for either side (below). `melee_brute/fox.py` is a worked example for Fox against Fox, and the command line runs it:
 
 ```bash
 python -m melee_brute bench                                    # time a frame, a checkpoint, a rollback
@@ -60,6 +60,15 @@ python -m melee_brute fox --gap 11.5 --hop 9 --frames 16 --safe --trap
 ```
 
 The last one starts with the attacker nine frames into a short hop above a cornered Fox and asks which defences hold without guessing. At 6, 11 and 14 frames the only one is shield: his shine, safe when both stand, is not safe against a Fox in the air. The 16-frame run published earlier used the old search and menus and has not been repeated.
+
+### Rules for chaining searches
+
+- **A decision every frame.** `fox.frame_rules()` gives both Foxes one input a frame, as two players or bots play it, with the jumpsquat cancels, the spotdodge from standing and the cut-short shield drop that `fox.RULES` lacks. `defender={"ground": (...)}` gives P2 menus of his own.
+- **`caught`**: action ids that count as having been hit. A grab moves no percent, so without it a grab is never a first hit. `frame_rules` sets it.
+- **`Zone`**: a set of positions whose result is already known (actions of both, the gap between them, where P2 stands). A line that reaches one stops there. What one search proved about a set of positions becomes a zone of the next, which is how a search of 10 frames can say something about a longer game.
+- **`timeout="attacker"`**: a line whose frames run out goes to the attacker. The defender then has to reach one of his zones in time, not just last.
+
+On five positions solved earlier as the simultaneous game, the one-frame rules give the same answers (`tests/test_brute.py`).
 
 ### Exact or look-alike
 

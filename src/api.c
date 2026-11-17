@@ -647,6 +647,12 @@ MslResult msl_brute_trapped(MslBrute* brute, int32_t* out_trapped) {
   return public_result(msl_core_brute_trapped((MslCoreBrute*)brute, out_trapped));
 }
 
+MslResult msl_brute_ruled(MslBrute* brute, int32_t frames, int32_t attacker, int32_t defender,
+                          int32_t* out_whose) {
+  return public_result(
+      msl_core_brute_ruled((MslCoreBrute*)brute, frames, attacker, defender, out_whose));
+}
+
 MslResult msl_brute_search(MslBrute* brute, int32_t frames, int32_t attacker, int32_t defender,
                            uint32_t level, int attacking, uint32_t spread, int32_t* out_holds) {
   return public_result(msl_core_brute_search((MslCoreBrute*)brute, frames, attacker, defender,
