@@ -261,3 +261,17 @@ def test_one_input_a_frame_gives_the_known_answers():
     f = Forced(m, bare)
     assert not f.win(6) and not f.safe(6)
     assert Forced(m, fox.frame_rules()).safe(6)
+
+
+def test_a_zone_can_stop_at_an_action_frame():
+    from melee_brute import Forced, Zone, fox
+    m = _corner(14)
+    early = Zone("attacker", frozenset({14}), frozenset({235}), defender_frame=3)  # 235: spotdodge
+    f = Forced(m, fox.frame_rules(zones=(early,)))
+    m.checkpoint(0)
+    seen = []
+    for i in range(5):
+        f.play(("wait", 0, 1), ("spotdodge" if i == 0 else "wait", 0, -1))
+        seen.append(f.ruled(5))
+    m.rollback(0)
+    assert seen == [True, True, True, None, None]
