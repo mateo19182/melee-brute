@@ -632,6 +632,10 @@ MslResult msl_brute_begin(MslBrute* brute, const MslBruteRules* rules, void* tab
       msl_core_brute_begin((MslCoreBrute*)brute, rules, table, table_bytes, exact));
 }
 
+MslResult msl_brute_share(MslBrute* brute, void* busy, size_t busy_bytes) {
+  return public_result(msl_core_brute_share((MslCoreBrute*)brute, busy, busy_bytes));
+}
+
 MslResult msl_brute_play(MslBrute* brute, int32_t attacker, int32_t defender, MslBrutePlay* out) {
   return public_result(msl_core_brute_play((MslCoreBrute*)brute, attacker, defender, out));
 }
@@ -654,9 +658,9 @@ MslResult msl_brute_ruled(MslBrute* brute, int32_t frames, int32_t attacker, int
 }
 
 MslResult msl_brute_search(MslBrute* brute, int32_t frames, int32_t attacker, int32_t defender,
-                           uint32_t level, int attacking, uint32_t spread, int32_t* out_holds) {
+                           uint32_t level, int attacking, int32_t* out_holds) {
   return public_result(msl_core_brute_search((MslCoreBrute*)brute, frames, attacker, defender,
-                                             level, attacking, spread, out_holds));
+                                             level, attacking, out_holds));
 }
 
 MslResult msl_brute_stats(const MslBrute* brute, MslBruteStats* out) {

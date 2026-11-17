@@ -31,6 +31,7 @@ The frame's profile is flat. The top entries are skeletal animation (`interpret_
 | Pre-scan of answers only with more than 3 frames left | 1.60M to 0.93M positions | `BRUTE_SCAN_FRAMES` |
 | Answers ordered by refutations per position spent | about 10% fewer positions than menu order | `record_score` |
 | One table shared by forked processes, helpers on unfinished jobs | 16-process use from 68% to 95%; 14-frame solve 79 s to 65.5 s | `solve` in `melee_brute/search.py` |
+| Processes split a search at every depth (busy lines, first answer by all, pointless searches given up); `solve` one job per root joint move | 13-frame solve on 16 processes, machine load about 70: "safe" 23.4 and 24.1 s to 10.3 and 10.5 s, 10.8 and 11.4 million positions to 4.6 and 4.3; "win" 16.0 s to 9.1 s, 6.9 million to 3.0 | `search`, `overtaken` in `src/runtime/brute.c`; `solve` |
 | `Match.step` without the `EnvBatch.step` wrapper | 40 µs to 17 µs a frame from Python | `melee_brute/match.py` |
 | Whole simulator optimized, link-time optimization | 19.9 µs to about 18 µs a position | `Makefile` release profile |
 | Profile from the validation recordings (opt-in) | to about 16.5 µs | `make release-profile`, `RELEASE_PGO=use` |
@@ -194,14 +195,24 @@ profile-guided builds, a searched position is near its floor for this formulatio
 1. **The frame in a search.** Train the profile on solver positions as well as recordings. Then
    see whether pose work for bones no hitbox, hurtbox or collision point depends on can be skipped;
    the differential gate can now check that.
-2. **Process scheduling.** Measured 2026-11-17 on a 13-frame solve (11 to 12 million positions,
-   16 cores, 32 threads): 8 processes 28.3 s at 19.5 µs a position, 16 processes 18.6 s at 23.8 µs,
-   30 processes 25.5 s at 42 µs. Past one process a core, the second thread of each core nearly
-   doubles the cost of a position, so `solve` now starts one process a core. At 16 the processes
-   are busy 92% of the time and the largest of 204 jobs is under half of one process's share:
-   splitting jobs further would gain at most 8% here. It becomes worth doing on a machine with
-   many more cores, where a single job can exceed one process's share. The cost of a position
-   still rises 22% from 8 to 16 processes; that is shared cache and memory, not scheduling.
+2. **Process scheduling.** Done 2026-11-17, in two parts.
+   - One process a core. On a 13-frame solve (16 cores, 32 threads): 8 processes 28.3 s at
+     19.5 µs a position, 16 processes 18.6 s at 23.8 µs, 30 processes 25.5 s at 42 µs. The second
+     thread of a core nearly doubles the cost of a position.
+   - Work shared inside the search. The old `solve` cut the work into fixed jobs, one per root
+     joint move and next move of the first picker, and searched every one, though one next move
+     that holds settles its root move: half the positions were of no use to the answer. Processes
+     put on one question together did 2.6 times the positions of one process (2.35 million against
+     0.91 on the 13-frame "safe" question), because each went on with searches another had already
+     made pointless. With the busy lines, refuted moves in the table and giving up (the methods of
+     parallel chess programs: ABDADA, young brothers wait, cutoff checks), 16 processes on that
+     question do 1.15 million, and `solve` has one job per root joint move.
+   - Tried and dropped on the way: leaving a move whose answers are all taken for the next move
+     (4.3 million positions: the next move is a guess, the answers are not), and starting helpers
+     on other moves (`spread`, 1.5 million with the rest in place).
+   - Left: a position costs 22% more at 16 processes than at 8, which is shared cache and memory.
+     On small questions (a few thousand positions) 16 processes still do 3 times the positions of
+     one; those take milliseconds either way.
 3. **The question, not the engine.** The remaining factors of ten are in what is asked: fewer or
    longer moves in the menus, zones of known result that end lines early, and the look-alike table
    for exploring before an exact run confirms. The two tables agree on all 360 corpus positions.

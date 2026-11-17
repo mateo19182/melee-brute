@@ -194,6 +194,30 @@ def test_solve_on_forked_processes_matches_one_process():
     assert solve(root, fox.RULES, 6, "win", workers=2, table_mb=16)["holds"] == []
 
 
+def _share(_):
+    from melee_brute import search
+    return search._F.safe(9), search._F.positions
+
+
+def test_processes_on_one_question_split_it_and_agree():
+    import mmap
+    import multiprocessing as mp
+    from melee_brute import Forced, Match, fox, search
+    m = Match()
+    m.load(fox.corner(m, 11.5, hop=9))
+    alone = Forced(m, fox.RULES)
+    answer, cost = alone.safe(9), alone.positions
+    search._F = Forced(m, fox.RULES, table=mmap.mmap(-1, 16 << 20), busy=mmap.mmap(-1, 1 << 16))
+    try:
+        with mp.get_context("fork").Pool(4) as pool:
+            got = pool.map(_share, range(4), chunksize=1)
+    finally:
+        search._F = None
+    assert [ok for ok, _ in got] == [answer] * 4
+    # Four that repeated each other would play four times the positions of one.
+    assert sum(n for _, n in got) < 3 * cost
+
+
 def _corner(gap, hop=0):
     from melee_brute import Match, fox
     m = Match()

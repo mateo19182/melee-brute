@@ -416,11 +416,17 @@ MSL_API MslResult msl_brute_step(MslBrute* brute, const MslInput* input);
 // look, so an answer can be wrong. msl_brute_search answers, for
 // `attacking`, whether player 1 forces the first hit within `frames` whatever player 2 does, and
 // otherwise whether player 2 can avoid it whatever player 1 does; the side asked about picks
-// first. It uses checkpoint levels from `level` up and leaves the state as it found it. Processes
-// that search the same position over one table pass different `spread` (0 for the first): each
-// then starts on different moves and they meet through the table.
+// first. It uses checkpoint levels from `level` up and leaves the state as it found it.
+// msl_brute_share, after msl_brute_begin, is for processes that search over one table: `busy` is
+// zeroed memory they all map, where each notes the line it is searching. One that finds a line
+// taken searches the others first, and one whose search another process has made pointless gives
+// it up, so they split the work at every depth instead of repeating each other. A few thousand
+// entries (8 bytes each) are plenty. Answers do not depend on it. Its first 8 bytes are a stop
+// word: once nonzero, every search over it returns MSL_INVALID_STATE at its next position, which
+// ends the processes without killing one mid-write.
 MSL_API MslResult msl_brute_begin(MslBrute* brute, const MslBruteRules* rules, void* table,
                                   size_t table_bytes, int exact);
+MSL_API MslResult msl_brute_share(MslBrute* brute, void* busy, size_t busy_bytes);
 MSL_API MslResult msl_brute_play(MslBrute* brute, int32_t attacker, int32_t defender,
                                  MslBrutePlay* out);
 MSL_API MslResult msl_brute_options(MslBrute* brute, int32_t attacker, int32_t defender,
@@ -434,7 +440,7 @@ MSL_API MslResult msl_brute_ruled(MslBrute* brute, int32_t frames, int32_t attac
                                   int32_t defender, int32_t* out_whose);
 MSL_API MslResult msl_brute_search(MslBrute* brute, int32_t frames, int32_t attacker,
                                    int32_t defender, uint32_t level, int attacking,
-                                   uint32_t spread, int32_t* out_holds);
+                                   int32_t* out_holds);
 MSL_API MslResult msl_brute_stats(const MslBrute* brute, MslBruteStats* out);
 
 #ifdef __cplusplus

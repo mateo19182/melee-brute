@@ -20,6 +20,8 @@ MslCoreResult msl_core_brute_step(MslCoreBrute* brute, const MslInput* input);
 MslCoreResult msl_core_brute_begin(MslCoreBrute* brute,
                                    const MslBruteRules* rules, void* table,
                                    size_t table_bytes, int exact);
+MslCoreResult msl_core_brute_share(MslCoreBrute* brute, void* busy,
+                                   size_t busy_bytes);
 MslCoreResult msl_core_brute_play(MslCoreBrute* brute, int32_t attacker,
                                   int32_t defender, MslBrutePlay* out);
 MslCoreResult msl_core_brute_options(MslCoreBrute* brute, int32_t attacker,
@@ -34,7 +36,7 @@ MslCoreResult msl_core_brute_ruled(MslCoreBrute* brute, int32_t frames,
 MslCoreResult msl_core_brute_search(MslCoreBrute* brute, int32_t frames,
                                     int32_t attacker, int32_t defender,
                                     uint32_t level, int attacking,
-                                    uint32_t spread, int32_t* out_holds);
+                                    int32_t* out_holds);
 MslCoreResult msl_core_brute_stats(const MslCoreBrute* brute,
                                    MslBruteStats* out);
 

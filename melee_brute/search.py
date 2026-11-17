@@ -202,6 +202,7 @@ def first_hit(base: tuple, a, b) -> int:
 
 
 WORKER_MB = 200  # a forked search process: its checkpoints and the pages it has written
+BUSY_BYTES = 1 << 17  # lines being searched: a few hundred at a time, in room for 16,000
 RESERVE_MB = 4_000  # memory left for everything else on the machine
 
 
@@ -237,10 +238,14 @@ class Forced:
     that looks the same from outside (place, speeds, action and its frame, shield): many times fewer positions,
     but what a fighter was holding is not part of that look, so an answer can be wrong.
 
+    `busy` is a second shared `mmap` for processes that search together: each notes there the line it is on,
+    and the others leave that line for later, so they split the work at every depth. Writing a nonzero first
+    byte to it makes every search over it give up.
+
     A match searches for one `Forced` at a time: making another for the same match retires this one."""
 
     def __init__(self, match: Match, rules: Rules, table_mb: int = 256, table: mmap.mmap | None = None,
-                 exact: bool = True):
+                 exact: bool = True, busy: mmap.mmap | None = None):
         self.m, self.rules = match, rules
         self.table = table if table is not None else mmap.mmap(-1, table_mb << 20)
         self._memory = (ctypes.c_char * len(self.table)).from_buffer(self.table)
@@ -250,6 +255,9 @@ class Forced:
         self._natt, self._ndfn, self._holds = ctypes.c_uint32(), ctypes.c_uint32(), ctypes.c_int32()
         engine.ok(match.lib.msl_brute_begin(match.brute, ctypes.byref(rules.data), self._memory, len(self.table),
                                             exact))
+        if busy is not None:
+            self._busy = (ctypes.c_char * len(busy)).from_buffer(busy)
+            engine.ok(match.lib.msl_brute_share(match.brute, self._busy, len(busy)))
         match.forced = self
 
     def _mine(self) -> None:
@@ -305,59 +313,32 @@ class Forced:
     def safe(self, frames: int, pa=None, pd=None, depth: int = 0) -> bool:
         return self._search(frames, pa, pd, depth, False)
 
-    def _search(self, frames: int, pa, pd, depth: int, attacking: bool, spread: int = 0) -> bool:
+    def _search(self, frames: int, pa, pd, depth: int, attacking: bool) -> bool:
         """With `attacking`, is the first hit forced for P1; without, can P2 always avoid it? The side asked
         about picks first and the other answers. Uses checkpoint levels from `depth` up and leaves the state
-        as it found it. Processes searching the same position over one table pass different `spread`."""
+        as it found it."""
         self._mine()
         engine.ok(self.m.lib.msl_brute_search(self.m.brute, frames, self._pack(pa), self._pack(pd), depth,
-                                              attacking, spread, ctypes.byref(self._holds)))
+                                              attacking, ctypes.byref(self._holds)))
         return bool(self._holds.value)
 
 
-# --- many processes, forked from one that holds the root: one job per (root joint move, first picker's next move)
+# --- many processes, forked from one that holds the root: one job per root joint move
 _F: Forced | None = None
 _CFG: dict = {}
 
 
-def _open(job):
-    """Play a root joint move: is the line decided at once, and if not, what may the first picker play next?"""
-    a, d = job
-    attacking, frames = _CFG["attacking"], _CFG["frames"]
-    _F.m.checkpoint(0)
-    o, u, ra, rd = _F.play(a, d)
-    whose = None if o else _F.ruled(frames - u, ra, rd)
-    if o:
-        done, nxt = (o > 0) == attacking, []
-    elif whose is not None:
-        done, nxt = whose == attacking, []
-    else:
-        done, nxt = None, _F.options(ra, rd)[0 if attacking else 1]
-    _F.m.rollback(0)
-    return a, d, done, nxt
-
-
 def _task(job):
-    """After the root joint move (a, d), does the first picker's move `m` hold against every answer? `spread`
-    is 0 for the process that owns the job and counts up for the ones that help it."""
-    a, d, m, spread = job
+    """Does the side asked about still get its way after the root joint move (a, d)? Processes given the same
+    job share it out between them through the busy lines."""
+    a, d = job
     attacking, frames = _CFG["attacking"], _CFG["frames"]
     before = _F.positions
     _F.m.checkpoint(0)
     o, u, ra, rd = _F.play(a, d)
-    att, dfn = _F.options(m if attacking else ra, rd if attacking else m)
-    pairs = [(a2, d2) for a2 in att for d2 in dfn]
-    turn = spread * (len(pairs) // 2 + 1) % len(pairs)
-    _F.m.checkpoint(1)
-    ok = True
-    for a2, d2 in pairs[turn:] + pairs[:turn]:
-        o2, u2, ra2, rd2 = _F.play(a2, d2)
-        ok = (o2 > 0) == attacking if o2 else _F._search(frames - u - u2, ra2, rd2, 2, attacking, spread)
-        _F.m.rollback(1)
-        if not ok:
-            break
+    ok = (o > 0) == attacking if o else _F._search(frames - u, ra, rd, 1, attacking)
     _F.m.rollback(0)
-    return a, d, m, ok, _F.positions - before
+    return a, d, ok, _F.positions - before
 
 
 def solve(root: bytes, rules: Rules, frames: int, mode: str = "win", workers: int | None = None,
@@ -368,9 +349,9 @@ def solve(root: bytes, rules: Rules, frames: int, mode: str = "win", workers: in
 
     The processes are forked from one that holds the root, so they share the game data and one table of
     decided positions, `table_mb` in all. By default there is one process for each core, cut to what the free
-    memory holds. Finished
-    jobs are appended to the file `out`; a later call with the same `out`, question and `tag` (name the root
-    position and the rules with it) skips them. `exact` is as in `Forced`."""
+    memory holds. There is one job per root joint move; processes on the same job split it between them (see
+    `busy` in `Forced`). Finished jobs are appended to the file `out`; a later call with the same `out`,
+    question and `tag` (name the root position and the rules with it) skips them. `exact` is as in `Forced`."""
     global _F, _CFG
     t0 = time.time()
     attacking = mode == "win"
@@ -385,46 +366,46 @@ def solve(root: bytes, rules: Rules, frames: int, mode: str = "win", workers: in
     log = open(out, "a") if out else None
     m = Match(*match, data_dir=data_dir)
     m.load(root)
-    _F = Forced(m, rules, table=mmap.mmap(-1, table_mb << 20), exact=exact)
+    busy = mmap.mmap(-1, BUSY_BYTES)
+    _F = Forced(m, rules, table=mmap.mmap(-1, table_mb << 20), exact=exact, busy=busy)
     _CFG = {"attacking": attacking, "frames": frames}
     att, dfn = _F.options()
+    jobs = [(a, d) for a in att for d in dfn]
+    np.random.default_rng(0).shuffle(jobs)
     result: dict[tuple, bool] = {}
     total = 0
+    for job in jobs:
+        if (seen := old.get(json.dumps(job))) is not None:
+            result[job], total = seen[0], total + seen[1]
+    todo = [job for job in jobs if job not in result]
     try:
         with mp.get_context("fork").Pool(workers) as pool:
-            jobs = []
-            for a, d, done, nxt in pool.imap_unordered(_open, [(a, d) for a in att for d in dfn]):
-                result[(a, d)] = bool(done)
-                jobs += [(a, d, x) for x in nxt]
-            np.random.default_rng(0).shuffle(jobs)
-            todo = []
-            for a, d, x in jobs:
-                if (seen := old.get(json.dumps([a, d, x]))) is None:
-                    todo.append((a, d, x))
-                else:
-                    result[(a, d)] = result[(a, d)] or seen[0]
-                    total += seen[1]
-            # Each job goes to one process. A process with nothing left to start helps the unfinished job
-            # that has the fewest: it searches the same position from other moves, through the same table.
+            # Each job goes to one process. A process with nothing left to start joins the unfinished job
+            # that has the fewest on it.
             done: queue.SimpleQueue = queue.SimpleQueue()
             fresh, helpers, flying = list(reversed(todo)), {job: 0 for job in todo}, 0
             while helpers:
                 while flying < workers and (fresh or helpers):
                     job = fresh.pop() if fresh else min(helpers, key=helpers.get)
-                    pool.apply_async(_task, ((*job, helpers[job]),), callback=done.put, error_callback=done.put)
+                    pool.apply_async(_task, (job,), callback=done.put, error_callback=done.put)
                     helpers[job] += 1
                     flying += 1
                 got = done.get()
                 flying -= 1
                 if isinstance(got, BaseException):
                     raise got
-                a, d, x, ok, n = got
+                a, d, ok, n = got
                 total += n
-                if helpers.pop((a, d, x), None) is not None:
-                    result[(a, d)] = result[(a, d)] or ok
+                if helpers.pop((a, d), None) is not None:
+                    result[(a, d)] = ok
                     if log:
-                        log.write(json.dumps({"ask": ask, "job": [a, d, x], "ok": ok, "n": n}) + "\n")
+                        log.write(json.dumps({"ask": ask, "job": [a, d], "ok": ok, "n": n}) + "\n")
                         log.flush()
+            # Processes that joined a job since answered are still searching. They are told to give up and
+            # left to return: one killed while it writes its result would keep the pool's lock for ever.
+            busy[0] = 1
+            pool.close()
+            pool.join()
     finally:
         _F = None
         m.close()
@@ -432,8 +413,8 @@ def solve(root: bytes, rules: Rules, frames: int, mode: str = "win", workers: in
             log.close()
     first, second = (0, 1) if attacking else (1, 0)
     table: dict[str, dict[str, bool]] = {}
-    for pair, ok in result.items():
-        table.setdefault(pair[first][0], {})[pair[second][0]] = ok
+    for pair in ((a, d) for a in att for d in dfn):  # menu order, whichever job finished first
+        table.setdefault(pair[first][0], {})[pair[second][0]] = result[pair]
     return {"mode": mode, "frames": frames, "holds": [x for x, row in table.items() if all(row.values())],
             "beaten_by": {x: [y for y, ok in row.items() if not ok] for x, row in table.items()},
             "positions": total, "seconds": round(time.time() - t0, 1), "workers": workers,
