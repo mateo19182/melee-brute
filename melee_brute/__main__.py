@@ -4,32 +4,37 @@ from __future__ import annotations
 import argparse
 import time
 
-from melee_brute import Match, fox, pad, solve
+from melee_brute import Forced, Match, fox, pad, solve
 from melee_brute.match import B
 
 
 def bench(args) -> None:
     m = Match(data_dir=args.data_dir)
-    m.start()
-    print(f"dirty pages learned: {m.learn()} of {m.rb.npages} ({m.rb.size / 1e6:.1f} MB match)")
+    m.load(fox.corner(m, 11.5, hop=9))
+    f = Forced(m, fox.RULES)
+    t = time.perf_counter()
+    f.win(9)
+    seconds, s = time.perf_counter() - t, f.stats()
+    print(f"forced search        {seconds / s.positions * 1e6:7.1f} us a position "
+          f"({s.positions:,} positions, {s.nodes:,} expanded, {s.table_hits:,} found in the table)")
+    print(f"pages a rollback copies: {s.dirty_pages}")
 
     def timed(fn, n):
         t = time.perf_counter()
         for _ in range(n):
             fn()
         return (time.perf_counter() - t) / n * 1e6
-    print(f"one frame            {timed(m.step, 5000):7.1f} us")
-    print(f"checkpoint           {timed(lambda: m.rb.checkpoint(0), 5000):7.1f} us")
-    print(f"rollback             {timed(lambda: m.rb.rollback(0), 5000):7.1f} us")
+    lib, brute = m.lib, m.brute
+    print(f"one frame            {timed(m.step, 5000):7.1f} us  (from Python, with its observation)")
+    print(f"checkpoint           {timed(lambda: lib.msl_brute_checkpoint(brute, 0), 5000):7.1f} us")
+    print(f"rollback             {timed(lambda: lib.msl_brute_rollback(brute, 0), 5000):7.1f} us")
+    print(f"state hash           {timed(m.hash, 5000):7.1f} us")
     print(f"savestate save+load  {timed(lambda: m.load(m.save()), 100):7.1f} us")
 
     def position():
         with m.branch():
             m.step(pad(B, y=-80))
-    with m.branch():  # inside a search: only the root rollback pays for the full exactness check
-        print(f"branch, step, undo   {timed(position, 5000):7.1f} us  (one searched position)")
-    print(f"the same at the root {timed(position, 500):7.1f} us  (includes the full check)")
-    print(f"pages a rollback missed and repaired: {m.missed}")
+    print(f"branch, step, undo   {timed(position, 5000):7.1f} us  (one position searched from Python)")
 
 
 def run_fox(args) -> None:
@@ -38,10 +43,10 @@ def run_fox(args) -> None:
     a, b = m.players()
     print(f"P1 at x={float(a['pos_x']):.1f} y={float(a['pos_y']):.1f}, P2 at x={float(b['pos_x']):.1f}, "
           f"{float(b['pos_x'] - a['pos_x']):.1f} apart, {args.frames} frames")
-    del m
-    rules = "melee_brute.fox:RULES_TRAP" if args.trap else "melee_brute.fox:RULES"
+    m.close()
+    rules = fox.RULES_TRAP if args.trap else fox.RULES
     r = solve(root, rules, args.frames, "safe" if args.safe else "win", args.workers, data_dir=args.data_dir,
-              table_mb=args.table_mb, out=args.out, tag=f"gap {args.gap} ledge {args.ledge} hop {args.hop}")
+              table_mb=args.table_mb, out=args.out, exact=not args.look, tag=f"gap {args.gap} ledge {args.ledge} hop {args.hop} trap {args.trap}")
     if args.safe:
         print(f"defender safe with {r['holds']}" if r["holds"] else "NO SAFE DEFENCE: the defender must guess")
     else:
@@ -64,8 +69,10 @@ def main() -> None:
     f.add_argument("--frames", type=int, default=10)
     f.add_argument("--safe", action="store_true", help="ask whether the defender has a defence that needs no guess")
     f.add_argument("--trap", action="store_true", help="count the measured shield trap as a win for the attacker")
+    f.add_argument("--look", action="store_true",
+                   help="let positions that look the same share an answer: much faster, can be wrong")
     f.add_argument("--workers", type=int)
-    f.add_argument("--table-mb", type=int, default=400, help="memory for remembered positions, per process")
+    f.add_argument("--table-mb", type=int, default=2048, help="memory for decided positions, shared by all processes")
     f.add_argument("--out", help="file that collects finished jobs; a rerun with it continues where it stopped")
     f.set_defaults(fn=run_fox)
     args = ap.parse_args()

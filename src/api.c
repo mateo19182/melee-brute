@@ -1,6 +1,7 @@
 #include "api.h"
 
 #include "runtime/batch.h"
+#include "runtime/brute.h"
 
 #include <math.h>
 #if defined(MSL_CORE_NATIVE) && !defined(MSL_CORE_WASM)
@@ -592,4 +593,66 @@ MslResult msl_batch_restore(MslBatch* batch, uint32_t env_index, const void* buf
   batch->max_frames[env_index] = header.max_frame;
   batch->viewpoint_players[env_index] = header.viewpoint_player;
   return MSL_OK;
+}
+
+MslResult msl_brute_create(MslBatch* batch, uint32_t env_index, uint32_t level_count,
+                           MslBrute** out_brute) {
+  if (batch == NULL) {
+    return MSL_INVALID_ARGUMENT;
+  }
+  return public_result(
+      msl_core_brute_create(batch->runtime, env_index, level_count, (MslCoreBrute**)out_brute));
+}
+
+void msl_brute_destroy(MslBrute* brute) { msl_core_brute_destroy((MslCoreBrute*)brute); }
+
+MslResult msl_brute_reset(MslBrute* brute) {
+  return public_result(msl_core_brute_reset((MslCoreBrute*)brute));
+}
+
+MslResult msl_brute_checkpoint(MslBrute* brute, uint32_t level) {
+  return public_result(msl_core_brute_checkpoint((MslCoreBrute*)brute, level));
+}
+
+MslResult msl_brute_rollback(MslBrute* brute, uint32_t level) {
+  return public_result(msl_core_brute_rollback((MslCoreBrute*)brute, level));
+}
+
+MslResult msl_brute_hash(MslBrute* brute, uint64_t hash[2]) {
+  return public_result(msl_core_brute_hash((MslCoreBrute*)brute, hash));
+}
+
+MslResult msl_brute_step(MslBrute* brute, const MslInput* input) {
+  return public_result(msl_core_brute_step((MslCoreBrute*)brute, input));
+}
+
+MslResult msl_brute_begin(MslBrute* brute, const MslBruteRules* rules, void* table,
+                          size_t table_bytes, int exact) {
+  return public_result(
+      msl_core_brute_begin((MslCoreBrute*)brute, rules, table, table_bytes, exact));
+}
+
+MslResult msl_brute_play(MslBrute* brute, int32_t attacker, int32_t defender, MslBrutePlay* out) {
+  return public_result(msl_core_brute_play((MslCoreBrute*)brute, attacker, defender, out));
+}
+
+MslResult msl_brute_options(MslBrute* brute, int32_t attacker, int32_t defender,
+                            int32_t attackers[], uint32_t* attacker_count, int32_t defenders[],
+                            uint32_t* defender_count) {
+  return public_result(msl_core_brute_options((MslCoreBrute*)brute, attacker, defender, attackers,
+                                              attacker_count, defenders, defender_count));
+}
+
+MslResult msl_brute_trapped(MslBrute* brute, int32_t* out_trapped) {
+  return public_result(msl_core_brute_trapped((MslCoreBrute*)brute, out_trapped));
+}
+
+MslResult msl_brute_search(MslBrute* brute, int32_t frames, int32_t attacker, int32_t defender,
+                           uint32_t level, int attacking, uint32_t spread, int32_t* out_holds) {
+  return public_result(msl_core_brute_search((MslCoreBrute*)brute, frames, attacker, defender,
+                                             level, attacking, spread, out_holds));
+}
+
+MslResult msl_brute_stats(const MslBrute* brute, MslBruteStats* out) {
+  return public_result(msl_core_brute_stats((const MslCoreBrute*)brute, out));
 }

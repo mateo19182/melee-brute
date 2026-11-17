@@ -7,7 +7,7 @@ decide almost every frame.
 from __future__ import annotations
 
 from melee_brute.match import A, B, NEUTRAL, R, X, Z, Match, pad
-from melee_brute.search import Rules
+from melee_brute.search import Rules, Trap
 
 _IN, _OUT, _SHIELD = pad(x=80), pad(x=-80), pad(R, r=255)
 MOVES = {
@@ -35,23 +35,13 @@ SQUAT, SHIELD, SHINE = {24}, {178, 179, 181, 182}, {360, 361, 364, 365, 366, 368
 LEDGE = 85.57  # Final Destination's ledges are at x = +-85.57
 
 
-def menu(slot) -> tuple[str, ...]:
-    a = int(slot["action_id"])
-    for kind, ids in (("ground", GROUND), ("air", AIR), ("squat", SQUAT), ("shield", SHIELD), ("shine", SHINE)):
-        if a in ids:
-            return MENUS[kind]
-    return MENUS["locked"]
+ACTIONS = {"ground": GROUND, "air": AIR, "squat": SQUAT, "shield": SHIELD, "shine": SHINE}
+# P2 is in shield and P1 stands within 10 units, free to act. Measured separately: every way out of shield then
+# loses 5-18% to a reaction, and a shield held untouched breaks after 196 frames.
+SHIELD_TRAP = Trap(attacker=frozenset(FREE), defender=frozenset({178, 179}), reach=10.0)
 
-
-def shield_trap(a, b) -> bool:
-    """P2 is in shield and P1 stands within 10 units, free to act. Measured separately: every way out of shield
-    then loses 5-18% to a reaction, and a shield held untouched breaks after 196 frames."""
-    return (int(b["action_id"]) in (178, 179) and int(a["action_id"]) in FREE
-            and abs(float(b["pos_x"]) - float(a["pos_x"])) <= 10.0 and float(a["pos_y"]) == float(b["pos_y"]))
-
-
-RULES = Rules(MOVES, menu)
-RULES_TRAP = Rules(MOVES, menu, shield_trap)
+RULES = Rules(MOVES, MENUS, ACTIONS)
+RULES_TRAP = Rules(MOVES, MENUS, ACTIONS, trap=SHIELD_TRAP)
 
 
 def corner(match: Match, gap: float, ledge: float = 12, hop: int = 0) -> bytes:

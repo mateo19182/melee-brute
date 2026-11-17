@@ -14,7 +14,6 @@ def match():
     from melee_brute import Match
     m = Match()
     m.start()
-    m.learn()
     return m
 
 
@@ -38,6 +37,50 @@ def test_a_rollback_and_replay_gives_the_same_savestate(match):
         for a, b in seq:
             match.step(a, b)
         assert match.save() == first
+
+
+def test_a_rollback_restores_pages_first_written_after_the_checkpoint():
+    """A checkpoint taken before any page was written holds nothing: the rollback rebuilds the state from
+    what each page held before its first write."""
+    from melee_brute import Match
+    m = Match()
+    m.start()
+    m.load(m.save())  # forgets which pages were written
+    before = m.save()
+    m.checkpoint(0)
+    rng = np.random.default_rng(2)
+    for a, b in _random_inputs(rng, 40):
+        m.step(a, b)
+    m.checkpoint(1)
+    middle = m.save()
+    for a, b in _random_inputs(rng, 40):
+        m.step(a, b)
+    assert m.save() not in (before, middle)
+    m.rollback(1)
+    assert m.save() == middle
+    m.rollback(0)
+    assert m.save() == before
+
+
+def test_the_hash_tells_states_apart_and_survives_a_fork(match):
+    import os
+    from melee_brute import B, pad
+    here = match.hash()
+    with match.branch():
+        match.step(pad(B, y=-80))
+        shine = match.hash()
+    with match.branch():
+        match.step(pad(x=80))
+        walk = match.hash()
+    assert len({here, shine, walk}) == 3 and match.hash() == here
+    read, write = os.pipe()
+    pid = os.fork()
+    if pid == 0:  # the child plays the same frame from the same state
+        match.step(pad(B, y=-80))
+        os.write(write, match.hash().to_bytes(16, "little"))
+        os._exit(0)
+    os.waitpid(pid, 0)
+    assert int.from_bytes(os.read(read, 16), "little") == shine
 
 
 def test_branch_undoes_what_happens_inside(match):
@@ -124,3 +167,28 @@ def test_jump_out_of_shield_needs_the_shield_button_held():
     assert reaches_squat("jump_oos") and not reaches_squat("jump")
     assert "jump_oos" in fox.MENUS["shield"] and "jump" not in fox.MENUS["shield"]
     assert "shine" in fox.MENUS["squat"]
+
+
+def test_the_exact_and_the_look_alike_tables_agree_here():
+    from melee_brute import Forced, Match, fox
+    m, n = Match(), Match()
+    root = fox.corner(m, 11.5, hop=9)
+    n.load(root)
+    exact, look = Forced(m, fox.RULES), Forced(n, fox.RULES, exact=False)
+    for frames in (3, 5, 7):
+        assert exact.win(frames) == look.win(frames)
+        assert exact.safe(frames) == look.safe(frames)
+    assert look.positions < exact.positions
+    with pytest.raises(RuntimeError):
+        Forced(m, fox.RULES_TRAP) and exact.win(3)
+
+
+def test_solve_on_forked_processes_matches_one_process():
+    from melee_brute import Forced, Match, fox, solve
+    m = Match()
+    root = fox.corner(m, 11.5, hop=9)
+    r = solve(root, fox.RULES, 6, "safe", workers=2, table_mb=16)
+    assert r["holds"] == ["shield2"] and r["positions"] > 0
+    f = Forced(m, fox.RULES)
+    assert not f.win(6)
+    assert solve(root, fox.RULES, 6, "win", workers=2, table_mb=16)["holds"] == []

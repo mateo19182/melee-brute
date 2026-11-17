@@ -18,6 +18,7 @@ Use each batch from one thread at a time; synchronize both batches when copying 
 | `msl_batch_copy(...)` | copy arbitrary environments between compatible batches |
 | `msl_batch_save(...)` / `msl_batch_restore(...)` | serialize or restore one complete environment |
 | `msl_batch_checkpoint(...)` / `msl_batch_rollback(...)` / `msl_batch_diff_pages(...)` | copy one environment out and back in place, whole or only chosen memory pages |
+| `msl_brute_create(...)`, `msl_brute_checkpoint` / `msl_brute_rollback`, `msl_brute_hash`, `msl_brute_begin` / `msl_brute_search` | exact take-back of one environment by write protection, a hash of its whole state, and the forced-first-hit search over a shared table (Linux; see `src/api.h` and [BRUTE.md](BRUTE.md)) |
 
 `data_root` may be the extraction root or its `raw/` directory. A `NULL` reset mask selects every
 environment; otherwise each nonzero byte selects its corresponding row. Save artifacts include the

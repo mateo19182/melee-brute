@@ -81,6 +81,10 @@ MslCoreResult msl_core_batch_checkpoint(
 MslCoreResult msl_core_batch_rollback(
     MslCoreBatch* batch, uint32_t match_index, const void* buffer,
     size_t buffer_size, const uint32_t* pages, uint32_t page_count);
+// The match at `match_index`, or NULL before its first reset.
+struct MslCoreMatch* msl_core_batch_match(MslCoreBatch* batch,
+                                          uint32_t match_index);
+
 MslCoreResult msl_core_batch_diff_pages(
     const MslCoreBatch* batch, uint32_t match_index, const void* buffer,
     size_t buffer_size, uint8_t* page_flags, uint32_t flag_count);

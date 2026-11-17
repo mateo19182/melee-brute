@@ -1,6 +1,6 @@
 # melee-brute
 
-**Brute-force search for Melee: this fork adds a 9-microsecond take-back and the `melee_brute` search package to melee-sim-light. Start with [BRUTE.md](BRUTE.md).** Below is the simulator's own README.
+**Brute-force search for Melee: this fork adds exact take-back, a forced-win search in C and the `melee_brute` package to melee-sim-light. Start with [BRUTE.md](BRUTE.md).** Below is the simulator's own README.
 
 ---
 

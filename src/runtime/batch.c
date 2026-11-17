@@ -688,3 +688,13 @@ MslCoreResult msl_core_batch_diff_pages(
     }
     return MSL_CORE_OK;
 }
+
+MslCoreMatch* msl_core_batch_match(MslCoreBatch* batch, uint32_t match_index)
+{
+    if (batch == NULL || match_index >= batch->match_count ||
+        !batch->initialized[match_index])
+    {
+        return NULL;
+    }
+    return &batch->matches[match_index];
+}

@@ -10,19 +10,25 @@ the furthest launch, the fastest kill from here". `improve` does the same for lo
 - `safe`: can the defender avoid being hit first whatever the attacker does, when the attacker sees each
   defender move before answering? A yes is a guaranteed defence.
 If both are no, the defender has to guess: the position is decided by mixed strategies.
+
+The forced search itself runs inside the simulator (src/runtime/brute.c). Positions it has decided are kept in a
+table keyed by a hash of the whole match state, so two positions share an answer only when they are the same.
 """
 from __future__ import annotations
 
-import importlib
+import ctypes
 import json
+import mmap
 import multiprocessing as mp
 import os
+import queue
 import time
-from dataclasses import dataclass
-from typing import Callable, Sequence
+from dataclasses import dataclass, field
+from typing import Callable, Iterable, Mapping, Sequence
 
 import numpy as np
 
+from melee_brute import engine
 from melee_brute.match import Input, Match
 
 
@@ -43,7 +49,7 @@ def best(match: Match, choices: Sequence, depth: int, score: Callable[[Match], f
             if value > top[0]:
                 top = (value, [c] + line)
         return top
-    return match.exact(lambda: go(depth))
+    return go(depth)
 
 
 def improve(match: Match, line: Sequence, choices: Sequence, score: Callable[[Match], float],
@@ -54,7 +60,7 @@ def improve(match: Match, line: Sequence, choices: Sequence, score: Callable[[Ma
     Use it when `best` is out of reach: a line of 300 frames has too many variations to try them all.
     Leaves the match where it started; returns the best score and line."""
     play = play or (lambda m, c: m.step(c))
-    start, line = list(line), list(line)
+    line = list(line)
     marks = range(0, len(line), every)  # checkpoint levels 1.. hold the state before these positions
 
     def run(first: int) -> float:
@@ -64,38 +70,83 @@ def improve(match: Match, line: Sequence, choices: Sequence, score: Callable[[Ma
             play(match, line[i])
         return score(match)
 
-    def search() -> tuple[float, list]:
-        nonlocal line
-        line = list(start)
-        rng = np.random.default_rng(seed)
-        match.checkpoint(0)
-        top = run(0)
-        for _ in range(tries):
-            i = int(rng.integers(len(line)))
-            old, line[i] = line[i], choices[int(rng.integers(len(choices)))]
-            if line[i] == old:
-                continue
+    rng = np.random.default_rng(seed)
+    match.checkpoint(0)
+    top = run(0)
+    for _ in range(tries):
+        i = int(rng.integers(len(line)))
+        old, line[i] = line[i], choices[int(rng.integers(len(choices)))]
+        if line[i] == old:
+            continue
+        match.rollback(1 + i // every)
+        value = run(marks[i // every])
+        if value > top:
+            top = value
+        else:  # undo the change; checkpoints after it now hold the rejected line, so lay them again
+            line[i] = old
             match.rollback(1 + i // every)
-            value = run(marks[i // every])
-            if value > top:
-                top = value
-            else:  # undo the change; checkpoints after it now hold the rejected line, so lay them again
-                line[i] = old
-                match.rollback(1 + i // every)
-                run(marks[i // every])
-        match.rollback(0)
-        return top, line
-    return match.exact(search)
+            run(marks[i // every])
+    match.rollback(0)
+    return top, line
+
+
+@dataclass(frozen=True)
+class Trap:
+    """A position the attacker is known to win, used as a shortcut: the defender's action is in `defender`,
+    the attacker's is in `attacker` and he is free to pick, and they stand within `reach` of each other
+    (`same_y`: at the same height)."""
+    attacker: frozenset[int]
+    defender: frozenset[int]
+    reach: float
+    same_y: bool = True
 
 
 @dataclass(frozen=True)
 class Rules:
     """`moves`: name -> one Input per frame, stick x written as if the opponent were to the right.
-    `menu(slot)`: the move names a fighter in that state may pick. `won(p1, p2)`: an optional position the
-    attacker is known to win, used as a shortcut."""
-    moves: dict[str, tuple[Input, ...]]
-    menu: Callable[[object], Sequence[str]]
-    won: Callable[[object, object], bool] | None = None
+    `menus`: menu name -> the moves a fighter with that menu may pick. `actions`: menu name -> the action ids
+    that get it (the first menu listing an id wins); every other action gets the menu `otherwise`."""
+    moves: Mapping[str, tuple[Input, ...]]
+    menus: Mapping[str, tuple[str, ...]]
+    actions: Mapping[str, Iterable[int]]
+    otherwise: str = "locked"
+    trap: Trap | None = None
+    names: tuple[str, ...] = field(init=False, compare=False)
+    data: engine.RulesData = field(init=False, compare=False, repr=False)
+
+    def __post_init__(self):
+        names = tuple(self.moves)
+        menus = tuple(self.menus)
+        d = engine.RulesData()
+        if (len(names) > engine.MAX_MOVES or len(menus) > engine.MAX_MENUS
+                or sum(map(len, self.moves.values())) > engine.MAX_MOVE_FRAMES
+                or max(map(len, self.menus.values())) > engine.MAX_MENU_MOVES):
+            raise ValueError("too many moves, frames or menus for the search")
+        d.move_count, d.menu_count = len(names), len(menus)
+        at = 0
+        for i, rows in enumerate(self.moves.values()):
+            d.move_start[i] = at
+            for row in rows:
+                d.frames[at] = engine.Pad(*row)
+                at += 1
+        d.move_start[len(names)] = at
+        for i, picks in enumerate(self.menus.values()):
+            d.menu_size[i] = len(picks)
+            for j, name in enumerate(picks):
+                d.menu_moves[i][j] = names.index(name)
+        for a in range(engine.ACTIONS):
+            d.action_menu[a] = menus.index(self.otherwise)
+        for name in reversed(tuple(self.actions)):
+            for a in self.actions[name]:
+                d.action_menu[a] = menus.index(name)
+        if self.trap:
+            d.trap, d.trap_same_y, d.trap_reach = 1, self.trap.same_y, self.trap.reach
+            for a in self.trap.attacker:
+                d.trap_attacker[a] = 1
+            for a in self.trap.defender:
+                d.trap_defender[a] = 1
+        object.__setattr__(self, "names", names)
+        object.__setattr__(self, "data", d)
 
 
 def first_hit(base: tuple, a, b) -> int:
@@ -106,77 +157,88 @@ def first_hit(base: tuple, a, b) -> int:
     return 0 if d1 == 0 and d2 == 0 else 1 if d2 > d1 else -1
 
 
-def _key(s) -> tuple:
-    return (round(float(s["pos_x"]), 2), round(float(s["pos_y"]), 2), round(float(s["speed_ground_x_self"]), 2),
-            round(float(s["speed_air_x_self"]), 2), round(float(s["speed_y_self"]), 2), int(s["action_id"]),
-            int(s["action_frame"]), int(s["hitlag"]), round(float(s["shield_hp"]), 1), int(s["facing"]),
-            int(s["jumps_left"]))
-
-
-TABLE_BYTES = 140  # measured memory per remembered position
-WORKER_MB = 600  # a search process before its table grows
-RESERVE_MB = 10_000  # memory left for everything else on the machine
+WORKER_MB = 200  # a forked search process: its checkpoints and the pages it has written
+RESERVE_MB = 4_000  # memory left for everything else on the machine
 
 
 def fit_workers(workers: int, table_mb: int) -> int:
-    """As many processes as the free memory holds with their tables full (Linux; elsewhere `workers`)."""
+    """As many processes as the free memory holds next to the table (Linux; elsewhere `workers`)."""
     try:
         with open("/proc/meminfo") as f:
             avail = next(int(x.split()[1]) for x in f if x.startswith("MemAvailable")) // 1024
     except OSError:
         return workers
-    return max(1, min(workers, (avail - RESERVE_MB) // (WORKER_MB + table_mb)))
+    return max(1, min(workers, (avail - RESERVE_MB - table_mb) // WORKER_MB))
 
 
 class Forced:
-    """Depth-first forced-win search from the match's current state. A move in flight is (name, frame, toward).
-    Decided positions are remembered by hash, in at most `table_mb` of memory; the table is emptied when full."""
+    """Forced-first-hit search from the match's current state, whose percents and stocks are the ones a hit is
+    measured against. A move in flight is (name, frame, toward). Decided positions are kept in `table`, a
+    shared `mmap` that forked processes search with together, or in a private one of `table_mb`.
 
-    def __init__(self, match: Match, rules: Rules, table_mb: int = 400):
+    With `exact` a decided position answers only for the very same state. Without, it answers for every state
+    that looks the same from outside (place, speeds, action and its frame, shield): many times fewer positions,
+    but what a fighter was holding is not part of that look, so an answer can be wrong.
+
+    A match searches for one `Forced` at a time: making another for the same match retires this one."""
+
+    def __init__(self, match: Match, rules: Rules, table_mb: int = 256, table: mmap.mmap | None = None,
+                 exact: bool = True):
         self.m, self.rules = match, rules
-        a, b = match.players()
-        self.base = (float(a["percent"]), float(b["percent"]), int(a["stocks"]), int(b["stocks"]))
-        self.for_attacker: dict[int, int] = {}  # fewest frames in which the position is proven good for P1
-        self.for_defender: dict[int, int] = {}  # most frames for which it is proven good for P2
-        self.cap = table_mb * 1_000_000 // TABLE_BYTES
-        self.positions = 0
+        self.table = table if table is not None else mmap.mmap(-1, table_mb << 20)
+        self._memory = (ctypes.c_char * len(self.table)).from_buffer(self.table)
+        self._play, self._count = engine.Play(), ctypes.c_uint32()
+        self._att = (ctypes.c_int32 * engine.MAX_MENU_MOVES)()
+        self._dfn = (ctypes.c_int32 * engine.MAX_MENU_MOVES)()
+        self._natt, self._ndfn, self._holds = ctypes.c_uint32(), ctypes.c_uint32(), ctypes.c_int32()
+        engine.ok(match.lib.msl_brute_begin(match.brute, ctypes.byref(rules.data), self._memory, len(self.table),
+                                            exact))
+        match.forced = self
+
+    def _mine(self) -> None:
+        if self.m.forced is not self:
+            raise RuntimeError("this match has since been given another Forced")
+
+    def _pack(self, move) -> int:
+        if move is None:
+            return engine.NO_MOVE
+        name, frame, toward = move
+        return self.rules.names.index(name) | frame << 8 | (1 << 24 if toward < 0 else 0)
+
+    def _unpack(self, move: int):
+        return None if move < 0 else (self.rules.names[move & 0xFF], move >> 8 & 0xFFFF, -1 if move >> 24 else 1)
+
+    def stats(self) -> engine.Stats:
+        self._mine()
+        s = engine.Stats()
+        engine.ok(self.m.lib.msl_brute_stats(self.m.brute, ctypes.byref(s)))
+        return s
+
+    @property
+    def positions(self) -> int:
+        return self.stats().positions
 
     def play(self, pa, pd):
         """Play P1 move `pa` against P2 move `pd` until one of them ends or someone is hit. Returns
         (outcome, frames used, P1's unfinished move, P2's unfinished move)."""
-        self.positions += 1
-        arows, drows = self.rules.moves[pa[0]], self.rules.moves[pd[0]]
-        out = used = 0
-        for f in range(min(len(arows) - pa[1], len(drows) - pd[1])):
-            b, x, y, cx, cy, l, r = arows[pa[1] + f]
-            db, dx, dy, dcx, dcy, dl, dr = drows[pd[1] + f]
-            self.m.step((b, x * pa[2], y, cx * pa[2], cy, l, r), (db, dx * pd[2], dy, dcx * pd[2], dcy, dl, dr))
-            used += 1
-            out = first_hit(self.base, *self.m.players())
-            if out:
-                break
-        ra = (pa[0], pa[1] + used, pa[2]) if pa[1] + used < len(arows) else None
-        rd = (pd[0], pd[1] + used, pd[2]) if pd[1] + used < len(drows) else None
-        return out, used, ra, rd
+        self._mine()
+        p = self._play
+        engine.ok(self.m.lib.msl_brute_play(self.m.brute, self._pack(pa), self._pack(pd), ctypes.byref(p)))
+        return p.outcome, p.frames, self._unpack(p.attacker), self._unpack(p.defender)
 
     def options(self, pa=None, pd=None):
-        a, b = self.m.players()
-        toward = 1 if float(b["pos_x"]) >= float(a["pos_x"]) else -1
-        att = [pa] if pa else [(n, 0, toward) for n in self.rules.menu(a)]
-        dfn = [pd] if pd else [(n, 0, -toward) for n in self.rules.menu(b)]
-        return att, dfn
-
-    def forget(self) -> None:
-        self.for_attacker.clear()
-        self.for_defender.clear()
-
-    def _remember(self, key: int, frames: int, attacker: bool) -> None:
-        if len(self.for_attacker) + len(self.for_defender) >= self.cap:
-            self.forget()
-        (self.for_attacker if attacker else self.for_defender)[key] = frames
+        self._mine()
+        engine.ok(self.m.lib.msl_brute_options(
+            self.m.brute, self._pack(pa), self._pack(pd), ctypes.byref(self._att), ctypes.byref(self._natt),
+            ctypes.byref(self._dfn), ctypes.byref(self._ndfn)))
+        return ([self._unpack(x) for x in self._att[:self._natt.value]],
+                [self._unpack(x) for x in self._dfn[:self._ndfn.value]])
 
     def known_win(self, pa) -> bool:
-        return self.rules.won is not None and pa is None and self.rules.won(*self.m.players())
+        """Is this a position the rules' trap counts as won, with the attacker free to pick?"""
+        self._mine()
+        engine.ok(self.m.lib.msl_brute_trapped(self.m.brute, ctypes.byref(self._holds)))
+        return pa is None and bool(self._holds.value)
 
     def win(self, frames: int, pa=None, pd=None, depth: int = 0) -> bool:
         return self._search(frames, pa, pd, depth, True)
@@ -184,134 +246,77 @@ class Forced:
     def safe(self, frames: int, pa=None, pd=None, depth: int = 0) -> bool:
         return self._search(frames, pa, pd, depth, False)
 
-    def _search(self, frames: int, pa, pd, depth: int, attacking: bool) -> bool:
-        """The answer to the question: with `attacking`, is the first hit forced for P1; without, can P2 always
-        avoid it? The side asked about picks first and the other answers. Leaves the state as it found it."""
-        if frames <= 0:
-            return not attacking
-        if self.known_win(pa):
-            return attacking
-        a, b = self.m.players()
-        key = hash(_key(a) + _key(b) + (pa, pd, attacking))
-        if frames >= self.for_attacker.get(key, 10 ** 6):  # more frames in hand only help the attacker
-            return attacking
-        if frames <= self.for_defender.get(key, -1):
-            return not attacking
-        att, dfn = self.options(pa, pd)
-        mine, theirs = (att, dfn) if attacking else (dfn, att)
-        good = 1 if attacking else -1  # the outcome that settles a line for the side asked about
-        pair = (lambda x, y: (x, y)) if attacking else (lambda x, y: (y, x))
-        self.m.checkpoint(depth)
-        for x in mine:
-            kids = []
-            for y in theirs:  # look at every answer first: one that wins at once for them refutes the move
-                kids.append(self.play(*pair(x, y)))
-                self.m.rollback(depth)
-                if kids[-1][0] == -good:
-                    break
-            if kids[-1][0] == -good:
-                continue
-            ok = True
-            for y, (o, u, ra, rd) in zip(theirs, kids):
-                if o == good:
-                    continue
-                self.play(*pair(x, y))
-                ok = self._search(frames - u, ra, rd, depth + 1, attacking)
-                self.m.rollback(depth)
-                if not ok:
-                    break
-            if ok:
-                self._remember(key, frames, attacking)
-                return True
-        self._remember(key, frames, not attacking)
-        return False
+    def _search(self, frames: int, pa, pd, depth: int, attacking: bool, spread: int = 0) -> bool:
+        """With `attacking`, is the first hit forced for P1; without, can P2 always avoid it? The side asked
+        about picks first and the other answers. Uses checkpoint levels from `depth` up and leaves the state
+        as it found it. Processes searching the same position over one table pass different `spread`."""
+        self._mine()
+        engine.ok(self.m.lib.msl_brute_search(self.m.brute, frames, self._pack(pa), self._pack(pd), depth,
+                                              attacking, spread, ctypes.byref(self._holds)))
+        return bool(self._holds.value)
 
 
-# --- many processes: one job per (root joint move, first picker's next move)
+# --- many processes, forked from one that holds the root: one job per (root joint move, first picker's next move)
 _F: Forced | None = None
 _CFG: dict = {}
 
 
-def _load(path: str):
-    module, name = path.split(":")
-    return getattr(importlib.import_module(module), name)
-
-
-def _init(root: bytes, cfg: dict) -> None:
-    global _F, _CFG
-    m = Match(*cfg["match"], data_dir=cfg["data_dir"])
-    m.load(root)
-    m.learn()
-    _F, _CFG = Forced(m, _load(cfg["rules"]), cfg["table_mb"]), cfg
-
-
-def _clean(run):
-    """Run, and repeat if a rollback missed a page: the table of proven positions may then hold wrong entries."""
-    while True:
-        before = _F.m.missed
-        out = run()
-        if _F.m.missed == before:
-            return out
-        _F.forget()
-
-
 def _open(job):
-    def run():
-        a, d = job
-        attacking = _CFG["attacking"]
-        _F.m.checkpoint(0)
-        o, u, ra, rd = _F.play(a, d)
-        known = o == 0 and _F.known_win(ra)
-        hit = 1 if (o > 0 or known) else o
-        done = None if hit == 0 else (hit > 0) == attacking
-        nxt = [] if done is not None else _F.options(ra, rd)[0 if attacking else 1]
-        _F.m.rollback(0)
-        return a, d, done, nxt
-    return _clean(run)
+    """Play a root joint move: is the line decided at once, and if not, what may the first picker play next?"""
+    a, d = job
+    attacking, frames = _CFG["attacking"], _CFG["frames"]
+    _F.m.checkpoint(0)
+    o, u, ra, rd = _F.play(a, d)
+    if o:
+        done, nxt = (o > 0) == attacking, []
+    elif frames - u <= 0:
+        done, nxt = not attacking, []
+    elif _F.known_win(ra):
+        done, nxt = attacking, []
+    else:
+        done, nxt = None, _F.options(ra, rd)[0 if attacking else 1]
+    _F.m.rollback(0)
+    return a, d, done, nxt
 
 
 def _task(job):
-    def run():
-        a, d, m = job
-        attacking, frames = _CFG["attacking"], _CFG["frames"]
-        _F.m.checkpoint(0)
-        o, u, ra, rd = _F.play(a, d)
-        att, dfn = _F.options(m if attacking else ra, rd if attacking else m)
-        _F.m.checkpoint(1)
-        ok = True
-        for a2 in att:
-            for d2 in dfn:
-                o2, u2, ra2, rd2 = _F.play(a2, d2)
-                if o2 == 0:
-                    ok = _F._search(frames - u - u2, ra2, rd2, 2, attacking)
-                else:
-                    ok = (o2 > 0) == attacking
-                _F.m.rollback(1)
-                if not ok:
-                    break
-            if not ok:
-                break
-        _F.m.rollback(0)
-        n, _F.positions = _F.positions, 0
-        return a, d, m, ok, n
-    return _clean(run)
+    """After the root joint move (a, d), does the first picker's move `m` hold against every answer? `spread`
+    is 0 for the process that owns the job and counts up for the ones that help it."""
+    a, d, m, spread = job
+    attacking, frames = _CFG["attacking"], _CFG["frames"]
+    before = _F.positions
+    _F.m.checkpoint(0)
+    o, u, ra, rd = _F.play(a, d)
+    att, dfn = _F.options(m if attacking else ra, rd if attacking else m)
+    pairs = [(a2, d2) for a2 in att for d2 in dfn]
+    turn = spread * (len(pairs) // 2 + 1) % len(pairs)
+    _F.m.checkpoint(1)
+    ok = True
+    for a2, d2 in pairs[turn:] + pairs[:turn]:
+        o2, u2, ra2, rd2 = _F.play(a2, d2)
+        ok = (o2 > 0) == attacking if o2 else _F._search(frames - u - u2, ra2, rd2, 2, attacking, spread)
+        _F.m.rollback(1)
+        if not ok:
+            break
+    _F.m.rollback(0)
+    return a, d, m, ok, _F.positions - before
 
 
-def solve(root: bytes, rules: str, frames: int, mode: str = "win", workers: int | None = None,
-          match: tuple = ("FOX", "FOX", "FINAL_DESTINATION"), data_dir=None, table_mb: int = 400,
-          out: str | None = None, tag: str = "") -> dict:
-    """Run `Forced` from savestate `root` on many processes. `rules` is "module:NAME" of a `Rules` object, so
-    each worker can import it. `mode` is "win" or "safe". Returns which first moves hold and what beats the rest.
+def solve(root: bytes, rules: Rules, frames: int, mode: str = "win", workers: int | None = None,
+          match: tuple = ("FOX", "FOX", "FINAL_DESTINATION"), data_dir=None, table_mb: int = 2048,
+          out: str | None = None, tag: str = "", exact: bool = True) -> dict:
+    """Run `Forced` from savestate `root` on many processes. `mode` is "win" or "safe". Returns which first
+    moves hold and what beats the rest.
 
-    Memory is bounded: each process keeps at most `table_mb` of decided positions, and the process count is cut
-    to what the free memory holds. Finished jobs are appended to the file `out`; a later call with the same
-    `out`, question and `tag` (name the root position with it) skips them."""
+    The processes are forked from one that holds the root, so they share the game data and one table of
+    decided positions, `table_mb` in all. The process count is cut to what the free memory holds. Finished
+    jobs are appended to the file `out`; a later call with the same `out`, question and `tag` (name the root
+    position and the rules with it) skips them. `exact` is as in `Forced`."""
+    global _F, _CFG
     t0 = time.time()
     attacking = mode == "win"
     workers = fit_workers(workers or mp.cpu_count(), table_mb)
-    cfg = {"match": match, "data_dir": data_dir, "rules": rules, "frames": frames, "attacking": attacking,
-           "table_mb": table_mb}
-    ask = {"rules": rules, "frames": frames, "mode": mode, "match": list(match), "tag": tag}
+    ask = {"frames": frames, "mode": mode, "match": list(match), "tag": tag, "exact": exact}
     old: dict[str, tuple[bool, int]] = {}
     if out and os.path.exists(out):
         with open(out) as f:
@@ -321,31 +326,51 @@ def solve(root: bytes, rules: str, frames: int, mode: str = "win", workers: int 
     log = open(out, "a") if out else None
     m = Match(*match, data_dir=data_dir)
     m.load(root)
-    att, dfn = Forced(m, _load(rules)).options()
-    del m
+    _F = Forced(m, rules, table=mmap.mmap(-1, table_mb << 20), exact=exact)
+    _CFG = {"attacking": attacking, "frames": frames}
+    att, dfn = _F.options()
     result: dict[tuple, bool] = {}
     total = 0
-    with mp.get_context("spawn").Pool(workers, initializer=_init, initargs=(root, cfg)) as pool:
-        jobs = []
-        for a, d, done, nxt in pool.imap_unordered(_open, [(a, d) for a in att for d in dfn]):
-            result[(a, d)] = bool(done)
-            jobs += [(a, d, x) for x in nxt] if done is None else []
-        np.random.default_rng(0).shuffle(jobs)
-        todo = []
-        for a, d, x in jobs:
-            if (seen := old.get(json.dumps([a, d, x]))) is None:
-                todo.append((a, d, x))
-            else:
-                result[(a, d)] = result[(a, d)] or seen[0]
-                total += seen[1]
-        for a, d, x, ok, n in pool.imap_unordered(_task, todo):
-            result[(a, d)] = result[(a, d)] or ok
-            total += n
-            if log:
-                log.write(json.dumps({"ask": ask, "job": [a, d, x], "ok": ok, "n": n}) + "\n")
-                log.flush()
-    if log:
-        log.close()
+    try:
+        with mp.get_context("fork").Pool(workers) as pool:
+            jobs = []
+            for a, d, done, nxt in pool.imap_unordered(_open, [(a, d) for a in att for d in dfn]):
+                result[(a, d)] = bool(done)
+                jobs += [(a, d, x) for x in nxt]
+            np.random.default_rng(0).shuffle(jobs)
+            todo = []
+            for a, d, x in jobs:
+                if (seen := old.get(json.dumps([a, d, x]))) is None:
+                    todo.append((a, d, x))
+                else:
+                    result[(a, d)] = result[(a, d)] or seen[0]
+                    total += seen[1]
+            # Each job goes to one process. A process with nothing left to start helps the unfinished job
+            # that has the fewest: it searches the same position from other moves, through the same table.
+            done: queue.SimpleQueue = queue.SimpleQueue()
+            fresh, helpers, flying = list(reversed(todo)), {job: 0 for job in todo}, 0
+            while helpers:
+                while flying < workers and (fresh or helpers):
+                    job = fresh.pop() if fresh else min(helpers, key=helpers.get)
+                    pool.apply_async(_task, ((*job, helpers[job]),), callback=done.put, error_callback=done.put)
+                    helpers[job] += 1
+                    flying += 1
+                got = done.get()
+                flying -= 1
+                if isinstance(got, BaseException):
+                    raise got
+                a, d, x, ok, n = got
+                total += n
+                if helpers.pop((a, d, x), None) is not None:
+                    result[(a, d)] = result[(a, d)] or ok
+                    if log:
+                        log.write(json.dumps({"ask": ask, "job": [a, d, x], "ok": ok, "n": n}) + "\n")
+                        log.flush()
+    finally:
+        _F = None
+        m.close()
+        if log:
+            log.close()
     first, second = (0, 1) if attacking else (1, 0)
     table: dict[str, dict[str, bool]] = {}
     for pair, ok in result.items():
