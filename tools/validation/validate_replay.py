@@ -43,6 +43,7 @@ DEFAULT_STAGES = "32,31,3,2,8,28"
 MAX_AUTO_WORKERS = 16
 DEFAULT_OUTPUT_LOCKS = ROOT / "replays/suites/melee_core_output_locks.json"
 
+UCF_FIXES = ("cardinals_1_0", "shield_sdi", "sdi", "shield_drop_extended", "shield_drop_084")
 STAGE_NAMES = {
     2: "Fountain",
     3: "Frozen Stadium",
@@ -807,6 +808,15 @@ def main() -> int:
         help="Inspect an ineligible capture; manual paths only, never suite acceptance or output locks.",
     )
     parser.add_argument(
+        "--played-on", choices=("dolphin", "mainline dolphin", "nintendont", "network"),
+        help="Manual paths only: platform for replays whose metadata lacks playedOn (e.g. anonymised datasets).",
+    )
+    parser.add_argument(
+        "--no-ucf", default="", metavar="FIXES",
+        help="Manual paths only: comma-separated UCF fixes the recording ran without "
+             f"({', '.join(UCF_FIXES)}), e.g. cardinals_1_0 for replays from older Slippi builds.",
+    )
+    parser.add_argument(
         "--output-locks",
         type=Path,
         default=DEFAULT_OUTPUT_LOCKS,
@@ -829,6 +839,11 @@ def main() -> int:
 
     if args.suite and (args.diagnostic or args.diagnostic_signed_zero_equal or args.frames or args.start_frame is not None):
         parser.error("suite acceptance requires complete strict admitted replays; use manual paths for diagnostics")
+    no_ucf = [f for f in args.no_ucf.split(",") if f]
+    if any(f not in UCF_FIXES for f in no_ucf):
+        parser.error(f"--no-ucf takes {', '.join(UCF_FIXES)}")
+    if args.suite and (args.played_on or no_ucf):
+        parser.error("--played-on and --no-ucf apply to manual paths; suites declare them per replay")
     if args.write_output_locks and (args.diagnostic or args.diagnostic_signed_zero_equal or args.frames or args.start_frame is not None):
         parser.error("output locks require complete strict admitted replays")
 
@@ -857,6 +872,8 @@ def main() -> int:
         else:
             stages = frozenset()
             cases = _manual_cases(args.replay)
+            cases = [replace(case, played_on=args.played_on or case.played_on,
+                             **{f"ucf_{f}_enabled": False for f in no_ucf}) for case in cases]
         if args.fnmsubs_profile is not None:
             cases = [replace(case, fnmsubs_profile=args.fnmsubs_profile) for case in cases]
         if args.jit_arithmetic is not None:
